@@ -17,21 +17,133 @@
   --bg:#ECEFF3;--card-bg:#FFF;--text:#222;--input-bg:#FFF;
 }
 body.dark{
-  --navy:#4A90D9;--blue:#5B9BD5;--lblue:#2A3A52;--sky:#1E2A3D;
+  --navy:#7AB0E0;--blue:#6FA8DC;--lblue:#2A3A52;--sky:#1E2A3D;
   --green:#7CB342;--lgreen:#2A3A24;
   --gold:#D4A828;--lgold:#3D3420;
-  --red:#E57373;--lred:#3D2424;
-  --gray:#2A2E37;--dgray:#A0A4AB;--border:#3A3F4A;
-  --bg:#161A20;--card-bg:#1E232B;--text:#E4E6EB;--input-bg:#262B33;
+  --orange:#E89855;--red:#E57373;--lred:#3D2424;
+  --gray:#252932;--dgray:#A8ACB3;--border:#3A3F4A;
+  --bg:#181C23;--card-bg:#21262E;--text:#E4E6EB;--input-bg:#2A2F38;
 }
 body.dark{background:var(--bg);color:var(--text)}
 body.dark .card,body.dark .kpi-card,body.dark .inv-table,body.dark .chart-card,body.dark .list-card,body.dark .config-card,body.dark .modal-content,body.dark .login-box{background:var(--card-bg);color:var(--text)}
 body.dark .nav{background:var(--card-bg)}
-body.dark .field-row input,body.dark .field-row select,body.dark .search-box input,body.dark .inv-search input,body.dark textarea,body.dark .val-input{background:var(--input-bg);color:var(--text)}
+body.dark .field-row input,body.dark .field-row select,body.dark .search-box input,body.dark .inv-search input,body.dark textarea,body.dark .val-input,body.dark input[type="text"],body.dark input[type="email"],body.dark input[type="password"],body.dark input[type="number"],body.dark input[type="date"],body.dark select{background:var(--input-bg);color:var(--text);border-color:var(--border)}
 body.dark .tbl td,body.dark .simple-tbl td,body.dark .inv-table td{color:var(--text)}
+body.dark .tbl th,body.dark .simple-tbl th,body.dark .inv-table th{background:#2A2F38;color:#C8CCD3;border-color:var(--border)}
 body.dark .search-results,body.dark .notif-panel{background:var(--card-bg)}
 body.dark .help-box{background:#3D3420;color:#E8D9A0}
 body.dark .kpi-val,body.dark .page-title,body.dark .card-tit{color:var(--text)}
+
+/* ═══ v13: Modo oscuro — Override de fondos claros hardcoded ═══
+   Estos colores aparecen como `style="background:#XXX"` inline en muchos lugares.
+   En modo claro se ven bien (matices suaves); en modo oscuro hay que oscurecerlos
+   manteniendo el tinte (crema sigue cálida, azul claro sigue azulado, etc.)
+   para conservar la jerarquía visual sin agredir la vista. */
+
+/* Fondos BLANCOS hardcoded en estilos inline → fondo card oscuro */
+body.dark [style*="background:#FFF;"],
+body.dark [style*="background: #FFF;"],
+body.dark [style*="background:#fff;"],
+body.dark [style*="background: #fff;"],
+body.dark [style*="background:#FFFFFF"],
+body.dark [style*="background:#ffffff"],
+body.dark [style*="background:white"],
+body.dark [style*="background: white"]{background:var(--card-bg) !important;color:var(--text) !important}
+
+/* Texto OSCURO hardcoded en estilos inline → texto claro */
+body.dark [style*="color:#222"],
+body.dark [style*="color: #222"],
+body.dark [style*="color:#333"],
+body.dark [style*="color: #333"],
+body.dark [style*="color:#000"]:not([style*="color:#000F"]):not([style*="color:#000A"]):not([style*="color:#000B"]):not([style*="color:#000C"]):not([style*="color:#000D"]):not([style*="color:#000E"]),
+body.dark [style*="color:#444"],
+body.dark [style*="color:#555"]{color:var(--text) !important}
+
+/* Cremas / amarillos suaves (warnings, destacados) → marrón cálido tenue */
+body.dark [style*="background:#FFF8E1"],
+body.dark [style*="background: #FFF8E1"],
+body.dark [style*="background:#FFFAF0"],
+body.dark [style*="background:#FDF6E3"],
+body.dark [style*="background:#FFF3CD"],
+body.dark [style*="background:#FFF2CC"],
+body.dark [style*="background:#FFF8DC"]{background:#2C2615 !important;color:#E8D9A0 !important}
+body.dark [style*="background:#FFEFB0"],
+body.dark [style*="background:#FFE082"],
+body.dark [style*="background:#FFE0B2"],
+body.dark [style*="background:#FFD700"]{background:#3D2F15 !important;color:#F2D77A !important}
+
+/* Azules suaves (sections, cards info) → gris-azul oscuro */
+body.dark [style*="background:#F5F8FC"],
+body.dark [style*="background: #F5F8FC"],
+body.dark [style*="background:#F8FAFC"],
+body.dark [style*="background:#FAFBFC"],
+body.dark [style*="background:#EBF3FB"],
+body.dark [style*="background:#E6F1FB"]{background:#262C36 !important;color:var(--text) !important}
+
+/* Azules info (notificaciones, recordatorios) → azul oscuro profundo */
+body.dark [style*="background:#E3F2FD"],
+body.dark [style*="background:#EEEDFE"]{background:#1E2A3D !important;color:#9BBFE0 !important}
+
+/* Verdes suaves (success, ok) → verde oscuro */
+body.dark [style*="background:#E8F5E9"],
+body.dark [style*="background:#DCF8C6"]{background:#1F2D1F !important;color:#A8D89F !important}
+
+/* Rojos suaves (errors, alerts) → rojo oscuro */
+body.dark [style*="background:#FEF5F5"],
+body.dark [style*="background:#FCEBEB"],
+body.dark [style*="background:#FCE4D6"]{background:#2E1C1C !important;color:#E89999 !important}
+
+/* Grises claros → gris oscuro del tema */
+body.dark [style*="background:#F5F5F5"],
+body.dark [style*="background:#F0F0F0"],
+body.dark [style*="background:#E0E0E0"]{background:var(--gray) !important;color:var(--text) !important}
+
+/* Texto oscuro hardcoded sobre fondos que ahora son oscuros — invertir */
+body.dark [style*="color:#5D4037"],
+body.dark [style*="color: #5D4037"]{color:#E8C896 !important}
+body.dark [style*="color:#0D47A1"],
+body.dark [style*="color: #0D47A1"]{color:#9BBFE0 !important}
+body.dark [style*="color:#1B5E20"]{color:#A8D89F !important}
+body.dark [style*="color:#B71C1C"]{color:#E89999 !important}
+body.dark [style*="color:#854F0B"]{color:#F2D77A !important}
+
+/* Inputs con borde fuerte oscuro hardcoded → suavizar */
+body.dark [style*="border:2px solid #2196F3"]{border-color:#3D5A80 !important}
+body.dark [style*="border:1px solid #D9D9D9"],
+body.dark [style*="border: 1px solid #D9D9D9"]{border-color:var(--border) !important}
+
+/* Clases adicionales que tenían background:#FFF en su definición CSS */
+body.dark .deuda-row,
+body.dark .fav-card,
+body.dark .alerta-card,
+body.dark .caja-items-cont,
+body.dark .transition-card,
+body.dark .confirm-box{background:var(--card-bg) !important;color:var(--text) !important;border-color:var(--border) !important}
+
+body.dark .qty-cell,
+body.dark .add-pago,
+body.dark .pago-row select,
+body.dark .pago-row input{background:var(--input-bg) !important;color:var(--text) !important;border-color:var(--border) !important}
+
+body.dark .tier-btn,
+body.dark .btn-secondary,
+body.dark .btn-multi,
+body.dark .filtro-alerta,
+body.dark .fav-manager-item{background:var(--input-bg) !important;color:var(--text) !important;border-color:var(--border) !important}
+
+body.dark .btn-secondary:hover{background:#2F3540 !important}
+
+body.dark .caja-btn-volver{background:var(--card-bg) !important;color:var(--navy) !important}
+
+/* Help-box amarillo abierto */
+body.dark .help-box.open{background:#3D3420 !important;color:#E8D9A0 !important}
+
+/* Login screen: NO oscurecer la caja del login porque va sobre gradiente azul */
+body.dark .login-box{background:#FFF !important;color:#222 !important}
+body.dark .login-box .login-field input{background:#FFF !important;color:#222 !important;border-color:#D9D9D9 !important}
+body.dark .login-box .login-logo h1,
+body.dark .login-box label{color:var(--navy) !important}
+body.dark .login-box .login-hint{color:var(--dgray) !important}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;background:var(--bg);color:var(--text);font-size:13px;line-height:1.4;min-height:100vh;transition:background 0.3s,color 0.3s}
 
 /* ═══ LOGIN ═══ */
@@ -3666,7 +3778,15 @@ function emitirFactura(){
     }
   }
   resumen+=`<div class="modal-summary-row"><span>IVA:</span><strong style="color:var(--gold)">$ 0.00 (exento)</strong></div>`;
-  resumen+=`<div class="modal-summary-row" style="background:#FFF8E1;margin:6px -8px;padding:6px 12px;border-radius:4px"><span><i class="ti ti-snowflake" style="color:var(--blue)"></i> Tasa congelada:</span><strong style="color:var(--blue)">${fmtBS(tasaCongelada.paralelo)}/USD</strong></div>`;
+  // v13: Mensaje de tasa diferenciado según tipo de pago.
+  // - Contado: tasa queda fija en la factura (ya se cobró todo, no importa lo que cambie).
+  // - Crédito: el saldo pendiente se recalcula con tasa del día (anti-descapitalización).
+  if(tipoPago==='contado'){
+    resumen+=`<div class="modal-summary-row" style="background:#FFF8E1;margin:6px -8px;padding:6px 12px;border-radius:4px"><span><i class="ti ti-coin" style="color:var(--blue)"></i> Tasa de emisión:</span><strong style="color:var(--blue)">${fmtBS(tasaCongelada.paralelo)}/USD</strong></div>`;
+  } else {
+    resumen+=`<div class="modal-summary-row" style="background:#FFF8E1;margin:6px -8px;padding:6px 12px;border-radius:4px"><span><i class="ti ti-coin" style="color:var(--blue)"></i> Tasa de emisión:</span><strong style="color:var(--blue)">${fmtBS(tasaCongelada.paralelo)}/USD</strong></div>`;
+    resumen+=`<div style="background:#E3F2FD;border-left:3px solid #2196F3;padding:6px 10px;margin:4px -8px;border-radius:4px;font-size:11px;color:#0D47A1"><i class="ti ti-info-circle"></i> <strong>Crédito:</strong> el saldo en Bs se ajusta con la tasa del día (anti-descapitalización). En USD el monto queda fijo.</div>`;
+  }
   if(negativos.length>0){
     resumen+=`<div class="modal-summary-row"><span>⚠ Préstamo inter-empresarial:</span><strong style="color:var(--gold)">${negativos.length} producto(s)</strong></div>`;
   }
@@ -3916,7 +4036,7 @@ function actualizarTasas(){
   recalcular();
   logBitacora('precio',`Actualizó tasas: Paralelo ${fmtBS(estado.tasa_par)} · BCV ${fmtBS(estado.tasa_bcv)}`,true);
   _sbGuardarTasas(); // v12: sync a Supabase
-  notif('Tasas actualizadas. Las facturas ya emitidas mantienen su tasa congelada.','success');
+  notif('Tasas actualizadas. Las facturas de contado mantienen su tasa; las de crédito recalculan saldo con la nueva.','success');
 }
 
 function mostrarAyuda(){
@@ -4695,53 +4815,256 @@ async function confirmarAnular(){
 }
 
 // ═══════════════════════════════════════════════════════════════
-// NOTA DE CRÉDITO
+// NOTA DE CRÉDITO (v13 — conectada a Supabase)
 // ═══════════════════════════════════════════════════════════════
 let facturaNC=null;
 let ncItems=[];
-function abrirNotaCredito(num,cliente){
-  facturaNC={num,cliente};
+
+async function abrirNotaCredito(num,cliente){
+  // Buscar la factura real en el array local
+  const factura = TODAS_FACTURAS.find(f => f.num === num);
+  if(!factura){notif('Factura no encontrada','error');return;}
+  if(factura.estado === 'anulada'){notif('No puedes emitir NC sobre una factura anulada','error');return;}
+
+  facturaNC = factura;
   document.getElementById('nc-info').textContent=`${num} · ${cliente} · Devolución parcial`;
-  // Simulamos los items facturados (ejemplo)
-  ncItems=[
-    {cod:'STH-7842',desc:'Turbo K27 John Deere 6420',cantFacturada:1,precio:374.83,devolver:0},
-    {cod:'BAR-1245',desc:'Filtro hidráulico FH-2210',cantFacturada:3,precio:19.76,devolver:0},
-    {cod:'LON-0089',desc:'Asiento operador A45',cantFacturada:1,precio:156.00,devolver:0},
-  ];
-  renderNCItems();
   document.getElementById('nc-motivo').value='';
+
+  // Cargar items REALES de la factura desde Supabase
+  ncItems = [];
+  if(_sb && _supabaseConectado){
+    try {
+      const {data:items, error} = await _sb
+        .from('factura_items')
+        .select('*')
+        .eq('factura_id', factura.id)
+        .order('created_at', {ascending: true});
+
+      if(error) throw error;
+      if(!items || items.length === 0){
+        notif('Esta factura no tiene ítems registrados en la base de datos','error');
+        return;
+      }
+
+      // Verificar si ya tiene notas de crédito previas (para restar cantidades ya devueltas)
+      let devueltosPrevios = {};
+      const {data:ncPrevias} = await _sb
+        .from('notas_credito')
+        .select('id')
+        .eq('factura_id', factura.id);
+
+      if(ncPrevias && ncPrevias.length > 0){
+        const ncIds = ncPrevias.map(nc => nc.id);
+        const {data:itemsPrevios} = await _sb
+          .from('nota_credito_items')
+          .select('producto_id, cantidad')
+          .in('nota_credito_id', ncIds);
+
+        if(itemsPrevios){
+          itemsPrevios.forEach(ip => {
+            devueltosPrevios[ip.producto_id] = (devueltosPrevios[ip.producto_id] || 0) + ip.cantidad;
+          });
+        }
+      }
+
+      // Armar items para el modal, restando lo ya devuelto
+      ncItems = items.map(it => {
+        const yaDevuelto = devueltosPrevios[it.producto_id] || 0;
+        const disponible = Math.max(0, it.cantidad - yaDevuelto);
+        return {
+          producto_id: it.producto_id,
+          cod: it.cod_alt || '—',
+          desc: it.descripcion || '',
+          cantFacturada: it.cantidad,
+          yaDevuelto: yaDevuelto,
+          disponible: disponible,
+          precio: parseFloat(it.precio_unitario || 0),
+          devolver: 0
+        };
+      }).filter(it => it.disponible > 0); // Solo mostrar items que aún tienen cantidad por devolver
+
+      if(ncItems.length === 0){
+        notif('Todos los productos de esta factura ya fueron devueltos en NC anteriores','warning');
+        return;
+      }
+
+    } catch(err){
+      console.error('[ARJ] Error cargando items para NC:', err);
+      notif('Error cargando items de la factura: '+(err.message||err),'error');
+      return;
+    }
+  } else {
+    notif('Sin conexión a Supabase. No se puede emitir NC offline.','error');
+    return;
+  }
+
+  renderNCItems();
   document.getElementById('modal-nota-credito').classList.add('show');
 }
+
 function renderNCItems(){
   const tbody=document.getElementById('nc-items');
-  tbody.innerHTML=ncItems.map((it,i)=>`
+  tbody.innerHTML=ncItems.map((it,i)=>{
+    const infoDevuelto = it.yaDevuelto > 0
+      ? `<span style="color:var(--orange);font-size:10px"> (${it.yaDevuelto} ya devueltos)</span>`
+      : '';
+    return `
     <tr>
       <td><strong>${it.cod}</strong><div style="font-size:11px;color:var(--dgray)">${it.desc}</div></td>
-      <td class="num">${it.cantFacturada}</td>
+      <td class="num">${it.cantFacturada}${infoDevuelto}</td>
       <td class="num">${fmtUSD(it.precio)}</td>
-      <td class="num"><input type="number" min="0" max="${it.cantFacturada}" value="${it.devolver}" onchange="actualizarNCItem(${i},this.value)" style="width:70px;padding:4px 8px;text-align:right;border:1px solid var(--border);border-radius:5px;font-family:inherit"></td>
+      <td class="num"><input type="number" min="0" max="${it.disponible}" value="${it.devolver}" onchange="actualizarNCItem(${i},this.value)" style="width:70px;padding:4px 8px;text-align:right;border:1px solid var(--border);border-radius:5px;font-family:inherit"></td>
       <td class="num"><strong style="color:var(--gold)">${fmtUSD(it.devolver*it.precio)}</strong></td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
   recalcularNC();
 }
+
 function actualizarNCItem(i,v){
-  ncItems[i].devolver=Math.min(parseInt(v)||0,ncItems[i].cantFacturada);
+  ncItems[i].devolver=Math.min(parseInt(v)||0,ncItems[i].disponible);
   renderNCItems();
 }
+
 function recalcularNC(){
   const tot=ncItems.reduce((a,it)=>a+it.devolver*it.precio,0);
   document.getElementById('nc-total').textContent=fmtUSD(tot);
 }
+
 function cerrarNotaCredito(){document.getElementById('modal-nota-credito').classList.remove('show');facturaNC=null;}
-function confirmarNotaCredito(){
+
+async function confirmarNotaCredito(){
   const motivo=document.getElementById('nc-motivo').value.trim();
-  const totDev=ncItems.reduce((a,it)=>a+it.devolver,0);
-  if(totDev===0){notif('Selecciona al menos un producto a devolver','error');return;}
+  const itemsDevolver = ncItems.filter(it => it.devolver > 0);
+  if(itemsDevolver.length === 0){notif('Selecciona al menos un producto a devolver','error');return;}
   if(!motivo){notif('Indica el motivo de la devolución','error');return;}
-  const tot=ncItems.reduce((a,it)=>a+it.devolver*it.precio,0);
-  logBitacora('anulacion',`Emitió nota de crédito sobre ${facturaNC.num} por ${fmtUSD(tot)} (${totDev} productos) — motivo: "${motivo}"`,true);
-  notif(`Nota de crédito emitida por ${fmtUSD(tot)}. Stock restaurado.`,'success');
-  cerrarNotaCredito();
+
+  const totalNC = itemsDevolver.reduce((a,it)=>a+it.devolver*it.precio, 0);
+  const factura = facturaNC;
+
+  if(!_sb || !_supabaseConectado){
+    notif('Sin conexión a Supabase. No se puede emitir NC offline.','error');
+    return;
+  }
+
+  try {
+    // 1. Obtener correlativo
+    const tipoContador = factura.empresa === 'directa' ? 'nc-directa' : 'nc-dist';
+    const anio = new Date().getFullYear();
+    const {data:contData, error:contErr} = await _sb
+      .from('contadores')
+      .select('*')
+      .eq('tipo', tipoContador)
+      .eq('anio', anio)
+      .single();
+
+    if(contErr || !contData){
+      notif('Error: contador de NC no encontrado. ¿Corriste el SQL?','error');
+      return;
+    }
+
+    const nuevoNum = contData.ultimo_numero + 1;
+    await _sb.from('contadores').update({ultimo_numero: nuevoNum}).eq('id', contData.id);
+    const numNC = `${contData.prefijo}-${anio}-${String(nuevoNum).padStart(5,'0')}`;
+
+    // 2. Crear nota de crédito en Supabase
+    const {data:ncCreada, error:ncErr} = await _sb.from('notas_credito').insert({
+      numero: numNC,
+      factura_id: factura.id,
+      factura_num: factura.num,
+      cliente: factura.cliente,
+      cliente_id: factura.cliente_id || null,
+      total: totalNC,
+      motivo: motivo,
+      empresa: factura.empresa,
+      usuario: estado.usuario
+    }).select().single();
+
+    if(ncErr) throw ncErr;
+
+    // 3. Crear items de la NC
+    const ncItemsDB = itemsDevolver.map(it => ({
+      nota_credito_id: ncCreada.id,
+      producto_id: it.producto_id,
+      codigo: it.cod,
+      descripcion: it.desc,
+      cantidad: it.devolver,
+      precio: it.precio,
+      subtotal: it.devolver * it.precio
+    }));
+
+    const {error:itemsErr} = await _sb.from('nota_credito_items').insert(ncItemsDB);
+    if(itemsErr) throw itemsErr;
+
+    // 4. Restaurar stock
+    const campoStock = factura.empresa === 'directa' ? 'stock_vd' : 'stock_dist';
+    for(const it of itemsDevolver){
+      const {data:prod} = await _sb
+        .from('productos')
+        .select(campoStock)
+        .eq('id', it.producto_id)
+        .single();
+
+      if(prod){
+        const nuevoStock = (prod[campoStock] || 0) + it.devolver;
+        await _sb.from('productos').update({[campoStock]: nuevoStock}).eq('id', it.producto_id);
+        // Actualizar local
+        const pLocal = PRODUCTOS.find(p => p.id === it.producto_id);
+        if(pLocal){
+          if(factura.empresa === 'directa') pLocal.stock_vd = nuevoStock;
+          else pLocal.stock_dist = nuevoStock;
+        }
+      }
+    }
+
+    // 5. Ajustar saldo de la factura si es crédito
+    if(factura.tipo_pago === 'credito'){
+      const nuevoSaldo = Math.max(0, (factura.saldo_pendiente || 0) - totalNC);
+      const nuevoTotal = Math.max(0, (factura.total || 0) - totalNC);
+      await _sb.from('facturas').update({
+        saldo_pendiente: nuevoSaldo,
+        // Si el saldo queda en 0, marcar como pagada
+        estado: nuevoSaldo <= 0 ? 'pagada' : factura.estado
+      }).eq('id', factura.id);
+
+      // Actualizar local
+      factura.saldo_pendiente = nuevoSaldo;
+      if(nuevoSaldo <= 0) factura.estado = 'pagada';
+
+      // Actualizar saldo del cliente
+      if(factura.cliente_id){
+        const cli = CLIENTES.find(c => c.id === factura.cliente_id);
+        if(cli){
+          const campoSaldo = factura.empresa === 'directa' ? 'saldo_vd' : 'saldo_dist';
+          const saldoActual = factura.empresa === 'directa' ? cli.saldo_vd : cli.saldo_dist;
+          const nuevoSaldoCli = Math.max(0, saldoActual - totalNC);
+          await _sb.from('clientes').update({[campoSaldo]: nuevoSaldoCli}).eq('id', cli.id);
+          if(factura.empresa === 'directa') cli.saldo_vd = nuevoSaldoCli;
+          else cli.saldo_dist = nuevoSaldoCli;
+        }
+      }
+    }
+
+    // 6. Si era contado, solo registrar (el dinero ya se cobró, la NC genera un crédito a favor)
+
+    // 7. Bitácora
+    const detalleItems = itemsDevolver.map(it => `${it.devolver}× ${it.cod}`).join(', ');
+    _sbLogBitacora(estado.usuario, factura.empresa, 'nota_credito',
+      `Emitió ${numNC} sobre ${factura.num} por ${fmtUSD(totalNC)} — ${detalleItems} — motivo: "${motivo}"`, true);
+
+    logBitacora('nota_credito',
+      `Emitió ${numNC} sobre ${factura.num} (${factura.cliente}) por ${fmtUSD(totalNC)} — ${detalleItems}`, true);
+
+    notif(`✓ ${numNC} emitida por ${fmtUSD(totalNC)}. Stock restaurado.`, 'success');
+
+    // 8. Refrescar vistas
+    renderHistorial();
+    renderCobrar();
+    cerrarNotaCredito();
+
+  } catch(err){
+    console.error('[ARJ] Error emitiendo NC:', err);
+    notif('Error al emitir nota de crédito: '+(err.message||err),'error');
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════
