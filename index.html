@@ -5030,6 +5030,22 @@ async function confirmarNotaCredito(){
       factura.saldo_pendiente = nuevoSaldo;
       if(nuevoSaldo <= 0) factura.estado = 'pagada';
 
+      // v13: Actualizar FACTURAS_COBRAR (el array de la vista CxC)
+      const idxCxC = FACTURAS_COBRAR.findIndex(f => f.num === factura.num);
+      if(idxCxC >= 0){
+        if(nuevoSaldo <= 0){
+          // Saldo en 0 → quitar de la lista de CxC
+          FACTURAS_COBRAR.splice(idxCxC, 1);
+        } else {
+          // Saldo parcial → actualizar el saldo en la lista
+          FACTURAS_COBRAR[idxCxC].total = nuevoSaldo;
+          if(FACTURAS_COBRAR[idxCxC].abonado !== undefined){
+            // Si hay abonos, mantenerlos pero ajustar el saldo
+            FACTURAS_COBRAR[idxCxC].total = nuevoSaldo + (FACTURAS_COBRAR[idxCxC].abonado || 0);
+          }
+        }
+      }
+
       // Actualizar saldo del cliente
       if(factura.cliente_id){
         const cli = CLIENTES.find(c => c.id === factura.cliente_id);
