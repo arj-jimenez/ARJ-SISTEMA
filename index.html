@@ -2230,8 +2230,10 @@ async function cargarDatosSupabase(){
         };
         // TODAS las facturas → historial
         TODAS_FACTURAS.push(obj);
-        // Facturas con saldo pendiente → cuentas por cobrar
-        if(est !== 'pagada' && est !== 'anulada'){
+        // v13: Cuentas por cobrar = SOLO crédito con saldo real pendiente.
+        // Nos basamos en saldo_pendiente (fuente de verdad), no en el campo estado,
+        // porque una NC puede dejar el saldo en 0 sin cambiar el estado.
+        if(obj.tipo_pago === 'credito' && obj.saldo_pendiente > 0.01 && est !== 'anulada'){
           FACTURAS_COBRAR.push(obj);
         }
         // Recientes → dashboard (últimas 20)
@@ -5019,31 +5021,27 @@ async function confirmarNotaCredito(){
     // 5. Ajustar saldo de la factura si es crédito
     if(factura.tipo_pago === 'credito'){
       const nuevoSaldo = Math.max(0, (factura.saldo_pendiente || 0) - totalNC);
-      const nuevoTotal = Math.max(0, (factura.total || 0) - totalNC);
+      // Si el saldo queda en 0 por la NC, el estado es "acreditada"
+      // (saldada por devolución, NO por pago en dinero — distinción contable importante)
+      const nuevoEstado = nuevoSaldo <= 0.01 ? 'acreditada' : factura.estado;
       await _sb.from('facturas').update({
         saldo_pendiente: nuevoSaldo,
-        // Si el saldo queda en 0, marcar como pagada
-        estado: nuevoSaldo <= 0 ? 'pagada' : factura.estado
+        estado: nuevoEstado
       }).eq('id', factura.id);
 
-      // Actualizar local
+      // Actualizar referencias locales (TODAS_FACTURAS y FACTURAS_COBRAR apuntan al mismo objeto)
       factura.saldo_pendiente = nuevoSaldo;
-      if(nuevoSaldo <= 0) factura.estado = 'pagada';
+      factura.estado = nuevoEstado;
+      const enTodas = TODAS_FACTURAS.find(x => x.num === factura.num);
+      if(enTodas && enTodas !== factura){
+        enTodas.saldo_pendiente = nuevoSaldo;
+        enTodas.estado = nuevoEstado;
+      }
 
-      // v13: Actualizar FACTURAS_COBRAR (el array de la vista CxC)
+      // Quitar de CxC si el saldo llegó a 0
       const idxCxC = FACTURAS_COBRAR.findIndex(f => f.num === factura.num);
-      if(idxCxC >= 0){
-        if(nuevoSaldo <= 0){
-          // Saldo en 0 → quitar de la lista de CxC
-          FACTURAS_COBRAR.splice(idxCxC, 1);
-        } else {
-          // Saldo parcial → actualizar el saldo en la lista
-          FACTURAS_COBRAR[idxCxC].total = nuevoSaldo;
-          if(FACTURAS_COBRAR[idxCxC].abonado !== undefined){
-            // Si hay abonos, mantenerlos pero ajustar el saldo
-            FACTURAS_COBRAR[idxCxC].total = nuevoSaldo + (FACTURAS_COBRAR[idxCxC].abonado || 0);
-          }
-        }
+      if(idxCxC >= 0 && nuevoSaldo <= 0.01){
+        FACTURAS_COBRAR.splice(idxCxC, 1);
       }
 
       // Actualizar saldo del cliente
@@ -6157,7 +6155,7 @@ function renderHistorial(){
   if(!cont) return;
 
   const estadoBadge = (est) => {
-    const map = {pagada:'background:var(--lgreen);color:var(--green)',pendiente:'background:var(--lgold);color:var(--gold)',parcial:'background:#E3F2FD;color:var(--blue)',vencida:'background:var(--lred);color:var(--red)',anulada:'background:#F5F5F5;color:#999',activa:'background:var(--lgreen);color:var(--green)',por_vencer:'background:var(--lgold);color:var(--gold)',convertida:'background:var(--lblue);color:var(--blue)'};
+    const map = {pagada:'background:var(--lgreen);color:var(--green)',pendiente:'background:var(--lgold);color:var(--gold)',parcial:'background:#E3F2FD;color:var(--blue)',vencida:'background:var(--lred);color:var(--red)',anulada:'background:#F5F5F5;color:#999',acreditada:'background:#FFF3E0;color:#E68A00',activa:'background:var(--lgreen);color:var(--green)',por_vencer:'background:var(--lgold);color:var(--gold)',convertida:'background:var(--lblue);color:var(--blue)'};
     return `<span style="${map[est]||''};padding:2px 8px;border-radius:8px;font-size:10px;font-weight:600;text-transform:uppercase">${est}</span>`;
   };
 
@@ -6172,9 +6170,11 @@ function renderHistorial(){
     const el4=document.getElementById('hist-ventas-mes');
     if(el1) el1.textContent = all.length;
     if(el2) el2.textContent = all.filter(f=>f.estado==='pagada').length;
-    if(el3) el3.textContent = all.filter(f=>f.estado!=='pagada').length;
+    // Pendientes = facturas que aún deben cobrarse (excluye pagadas, acreditadas y anuladas)
+    if(el3) el3.textContent = all.filter(f=>f.estado!=='pagada' && f.estado!=='acreditada' && f.estado!=='anulada').length;
+    // Ventas del mes: excluir anuladas y acreditadas (no son ventas efectivas)
     const mes = new Date().getMonth(), anio = new Date().getFullYear();
-    const ventasMes = all.filter(f=>{ const d=new Date(f.fecha_raw); return d.getMonth()===mes && d.getFullYear()===anio; }).reduce((a,f)=>a+f.total,0);
+    const ventasMes = all.filter(f=>{ const d=new Date(f.fecha_raw); return d.getMonth()===mes && d.getFullYear()===anio && f.estado!=='anulada'; }).reduce((a,f)=>a+f.total,0);
     if(el4) el4.textContent = fmtUSD(ventasMes);
 
     if(datos.length === 0){ cont.innerHTML = '<div style="text-align:center;padding:60px 20px;color:var(--dgray);background:#FFF;border-radius:8px;border:1px solid var(--border)"><i class="ti ti-file-off" style="font-size:48px;display:block;margin-bottom:12px;opacity:0.4"></i><div style="font-size:14px;font-weight:600;color:var(--dgray)">No hay facturas '+(buscar?'que coincidan':'aún')+'</div><div style="font-size:12px;margin-top:4px">Las facturas aparecerán aquí al emitirlas</div></div>'; return; }
@@ -6225,16 +6225,18 @@ async function verDetalleFactura(num){
   const f = TODAS_FACTURAS.find(x => x.num === num);
   if(!f){ notif('Factura no encontrada','error'); return; }
 
-  let items = [], pagos = [], motivoAnul = '', fechaAnul = '';
+  let items = [], pagos = [], notasCredito = [], motivoAnul = '', fechaAnul = '';
   if(_sb && _supabaseConectado && f.id){
     try {
-      const [itemsRes, pagosRes, factRes] = await Promise.all([
+      const [itemsRes, pagosRes, ncRes, factRes] = await Promise.all([
         _sb.from('factura_items').select('*').eq('factura_id', f.id),
         _sb.from('pagos').select('*').eq('factura_id', f.id).order('fecha'),
+        _sb.from('notas_credito').select('*').eq('factura_id', f.id).order('fecha'),
         _sb.from('facturas').select('motivo_anulacion,fecha_anulacion').eq('id', f.id).single()
       ]);
       items = itemsRes.data || [];
       pagos = pagosRes.data || [];
+      notasCredito = ncRes.data || [];
       if(factRes.data){
         motivoAnul = factRes.data.motivo_anulacion || '';
         fechaAnul = factRes.data.fecha_anulacion || '';
@@ -6242,8 +6244,12 @@ async function verDetalleFactura(num){
     } catch(e){ console.error('[ARJ] Error cargando detalle:', e); }
   }
 
+  // v13: Calcular abonos reales (dinero) vs acreditado por NC (devoluciones), por separado.
+  const abonadoReal = pagos.reduce((a,p) => a + (parseFloat(p.monto_usd)||0), 0);
+  const acreditadoNC = notasCredito.reduce((a,nc) => a + (parseFloat(nc.total)||0), 0);
+
   const estadoBadge = (est) => {
-    const map = {pagada:'background:var(--lgreen);color:var(--green)',pendiente:'background:var(--lgold);color:var(--gold)',parcial:'background:#E3F2FD;color:var(--blue)',vencida:'background:var(--lred);color:var(--red)',anulada:'background:#F5F5F5;color:#999'};
+    const map = {pagada:'background:var(--lgreen);color:var(--green)',pendiente:'background:var(--lgold);color:var(--gold)',parcial:'background:#E3F2FD;color:var(--blue)',vencida:'background:var(--lred);color:var(--red)',anulada:'background:#F5F5F5;color:#999',acreditada:'background:#FFF3E0;color:#E68A00'};
     return `<span style="${map[est]||''};padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700;text-transform:uppercase">${est}</span>`;
   };
 
@@ -6254,6 +6260,18 @@ async function verDetalleFactura(num){
   let pagosHTML = pagos.length ? pagos.map(p=>`
     <tr><td>${new Date(p.fecha).toLocaleString('es-VE',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'})}</td><td>${p.metodo}</td><td>${p.referencia||'—'}</td><td class="num">${fmtUSD(p.monto_usd)}</td></tr>
   `).join('') : '<tr><td colspan="4" style="text-align:center;color:var(--dgray);padding:14px">Sin pagos registrados</td></tr>';
+
+  // v13: Sección de notas de crédito emitidas sobre esta factura
+  const ncHTML = notasCredito.length ? `
+    <div style="margin-top:14px">
+      <h3 style="font-size:13px;color:var(--gold);margin-bottom:8px"><i class="ti ti-receipt-refund"></i> Notas de crédito emitidas</h3>
+      <table class="data-table" style="margin:0;font-size:11px">
+        <thead style="background:var(--sky)"><tr><th>N°</th><th>Fecha</th><th>Motivo</th><th class="num">Monto</th></tr></thead>
+        <tbody>${notasCredito.map(nc=>`
+          <tr><td style="font-family:monospace;font-weight:600;color:var(--gold)">${nc.numero}</td><td>${new Date(nc.fecha).toLocaleDateString('es-VE',{day:'2-digit',month:'short',year:'numeric'})}</td><td>${nc.motivo||'—'}</td><td class="num"><strong>${fmtUSD(nc.total)}</strong></td></tr>
+        `).join('')}</tbody>
+      </table>
+    </div>` : '';
 
   const anuladaBox = (f.estado==='anulada' && motivoAnul) ? `
     <div style="background:var(--lred);border:2px solid var(--red);border-radius:8px;padding:12px 14px;margin-bottom:14px">
@@ -6307,14 +6325,16 @@ async function verDetalleFactura(num){
             <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:12px"><span style="opacity:0.8">Subtotal:</span><span style="font-weight:700">${fmtUSD(f.total)}</span></div>
             <div style="display:flex;justify-content:space-between;margin-bottom:8px;font-size:12px;color:var(--lgold)"><span style="opacity:0.8">IVA (exento):</span><span>$0.00</span></div>
             <div style="border-top:1px solid rgba(255,255,255,0.2);padding-top:8px;display:flex;justify-content:space-between;font-size:16px;font-weight:800"><span>TOTAL:</span><span>${fmtUSD(f.total)}</span></div>
-            <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:12px;color:var(--lgreen)"><span style="opacity:0.8">Abonado:</span><span style="font-weight:700">${fmtUSD(f.abonado||0)}</span></div>
-            <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;color:${f.saldo_pendiente>0?'#FFCDD2':'#C8E6C9'}"><span>Saldo pendiente:</span><span>${fmtUSD(f.saldo_pendiente||0)}</span></div>
+            <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:12px;color:#C8E6C9"><span style="opacity:0.8">Abonado (pagos):</span><span style="font-weight:700">${fmtUSD(abonadoReal)}</span></div>
+            ${acreditadoNC > 0 ? `<div style="display:flex;justify-content:space-between;margin-top:4px;font-size:12px;color:#FFE082"><span style="opacity:0.8">Acreditado (NC):</span><span style="font-weight:700">−${fmtUSD(acreditadoNC)}</span></div>` : ''}
+            <div style="display:flex;justify-content:space-between;margin-top:6px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.2);font-size:13px;font-weight:700;color:${f.saldo_pendiente>0.01?'#FFCDD2':'#C8E6C9'}"><span>Saldo pendiente:</span><span>${fmtUSD(f.saldo_pendiente||0)}</span></div>
           </div>
-          ${f.estado!=='anulada' && f.estado!=='pagada' ? `<button class="btn btn-primary" style="width:100%;margin-top:8px" onclick="abrirAbono('${f.num}')"><i class="ti ti-cash-banknote"></i> Registrar abono</button>` : ''}
+          ${f.estado!=='anulada' && f.saldo_pendiente>0.01 ? `<button class="btn btn-primary" style="width:100%;margin-top:8px" onclick="abrirAbono('${f.num}')"><i class="ti ti-cash-banknote"></i> Registrar abono</button>` : ''}
           ${f.estado!=='anulada' ? `<button class="btn btn-secondary" style="width:100%;margin-top:6px" onclick="reimprimirFactura('${f.num}')"><i class="ti ti-printer"></i> Reimprimir</button>` : ''}
           ${f.estado!=='anulada' ? `<button class="btn btn-secondary" style="width:100%;margin-top:6px;color:var(--red);border-color:var(--red)" onclick="cerrarDetalleFactura();abrirAnular('${f.num}','${f.cliente}')"><i class="ti ti-ban"></i> Anular factura</button>` : ''}
         </div>
       </div>
+      ${ncHTML}
     </div>`;
 
   // Crear o reusar modal
