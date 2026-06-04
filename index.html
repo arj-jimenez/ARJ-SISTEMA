@@ -4838,7 +4838,7 @@ async function abrirNotaCredito(num,cliente){
         .from('factura_items')
         .select('*')
         .eq('factura_id', factura.id)
-        .order('created_at', {ascending: true});
+        .order('id', {ascending: true});
 
       if(error) throw error;
       if(!items || items.length === 0){
