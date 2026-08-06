@@ -5791,6 +5791,22 @@ GEN-3401    5"
     // ═══════════════════════════════════════════════════════════════
     // FORMATEO
     // ═══════════════════════════════════════════════════════════════
+    // ═══ COLCHÓN CAMBIARIO PROPORCIONAL A LA BRECHA (v13) ═══
+    // Regla de negocio: el colchón sobre la tasa paralela es el 10% de la
+    // brecha paralelo/BCV, con piso de 2% y techo de 8%.
+    //   brecha 20% → colchón 2% (piso) · brecha 44% → 4,4% · brecha 90% → 8% (techo)
+    // Devuelve el factor que convierte precio USD-paralelo a USD-BCV:
+    //   precioBCV = precioUSD × colchonFactor();  Bs = precioBCV × tasa_bcv
+    function colchonFactor() {
+      if (!(estado.tasa_bcv > 0) || !(estado.tasa_par > 0)) return 1;
+      const base = estado.tasa_par / estado.tasa_bcv;   // factor sin colchón
+      const brecha = base - 1;                           // ej: 0.44 = 44%
+      let colchon = 0.10 * brecha;                       // 10% de la brecha
+      if (colchon < 0.02) colchon = 0.02;                // piso 2%
+      if (colchon > 0.08) colchon = 0.08;                // techo 8%
+      return base * (1 + colchon);
+    }
+
     function fmtUSD(n) { return '$ ' + (Math.round(n * 100) / 100).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
     function fmtBS(n) { return 'Bs. ' + (Math.round(n * 100) / 100).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
     function redondeoBonito(p) {
@@ -6512,7 +6528,7 @@ GEN-3401    5"
     function completarPago(i) {
       const total = estado.items.reduce((a, it) => a + it.cant * it.precio, 0);
       if (total <= 0) return;
-      const factorBcv = estado.tasa_bcv > 0 ? (estado.tasa_par / estado.tasa_bcv) + 0.05 : 1;
+      const factorBcv = colchonFactor();
       const totalBs = total * factorBcv * estado.tasa_bcv; // mismo número que "Cobrar en Bs"
       // Fracción de la factura ya cubierta por los OTROS pagos, cada uno según su precio anunciado
       let fraccion = 0;
@@ -6537,7 +6553,7 @@ GEN-3401    5"
       const total = subtotal + iva;
       // Factor BCV: ajuste para que al cobrar en Bs a tasa BCV, ARJ reciba el valor real.
       // Se agrega +5 puntos porcentuales como colchón contra fluctuaciones del día.
-      const factorBcv = estado.tasa_bcv > 0 ? (estado.tasa_par / estado.tasa_bcv) + 0.05 : 1;
+      const factorBcv = colchonFactor();
       const totalBcv = total * factorBcv;
       const totalBs = totalBcv * estado.tasa_bcv; // Bs = precio BCV × tasa BCV (incluye colchón)
 
@@ -6590,7 +6606,7 @@ GEN-3401    5"
         const s = estado.empresa === 'directa' ? it.stock_vd : it.stock_dist;
         return it.cant > s;
       });
-      const factorBcv = estado.tasa_bcv > 0 ? (estado.tasa_par / estado.tasa_bcv) + 0.05 : 1;
+      const factorBcv = colchonFactor();
       const totalBcv = total * factorBcv;
       let resumen = `
     <div class="modal-summary-row"><span>Empresa:</span><strong><span style="background:${estado.empresa === 'directa' ? 'var(--lblue)' : 'var(--lgreen)'};color:${estado.empresa === 'directa' ? 'var(--blue)' : 'var(--green)'};padding:1px 7px;border-radius:8px;font-size:10px;font-weight:600">${nombreEmpresa(estado.empresa).toUpperCase()}</span></strong></div>
@@ -6656,7 +6672,7 @@ GEN-3401    5"
       <td class="num"><strong>${fmtUSD(it.cant * it.precio)}</strong></td>
     </tr>`).join('');
       const total = estado.items.reduce((a, i) => a + i.cant * i.precio, 0);
-      const _factorPrint = estado.tasa_bcv > 0 ? (estado.tasa_par / estado.tasa_bcv) + 0.05 : 1;
+      const _factorPrint = colchonFactor();
       const _totalBsPrint = total * _factorPrint * estado.tasa_bcv;
       document.getElementById('dc-subtotal').textContent = fmtUSD(total);
       document.getElementById('dc-total').textContent = fmtUSD(total);
@@ -6869,7 +6885,7 @@ GEN-3401    5"
         return;
       }
       // Factor con tasa del día (NO la congelada de la factura)
-      const factorHoy = estado.tasa_bcv > 0 ? (estado.tasa_par / estado.tasa_bcv) + 0.05 : 1;
+      const factorHoy = colchonFactor();
       c.innerHTML = facturasFiltradas.map(f => {
         const saldo = f.total - f.abonado;
         // Bs a cobrar HOY (no congelado): saldo USD × factor del día × tasa BCV del día
@@ -7562,7 +7578,7 @@ GEN-3401    5"
 
     function preRecalcular() {
       const total = preEstado.items.reduce((a, i) => a + i.cant * i.precio, 0);
-      const _fPre = estado.tasa_bcv > 0 ? (estado.tasa_par / estado.tasa_bcv) + 0.05 : 1;
+      const _fPre = colchonFactor();
       document.getElementById('pre-t-subtotal').textContent = fmtUSD(total);
       document.getElementById('pre-t-total').textContent = fmtUSD(total);
       document.getElementById('pre-t-bs').textContent = fmtBS(total * _fPre * estado.tasa_bcv);
@@ -7642,7 +7658,7 @@ GEN-3401    5"
     <tr><td>${i + 1}</td><td><strong>${it.cod_alt}</strong></td><td>${it.desc}</td><td class="num">${it.cant}</td><td class="num">${fmtUSD(it.precio)}</td><td class="num"><strong>${fmtUSD(it.cant * it.precio)}</strong></td></tr>`).join('');
       document.getElementById('dc-subtotal').textContent = fmtUSD(total);
       document.getElementById('dc-total').textContent = fmtUSD(total);
-      const _factorPrint2 = estado.tasa_bcv > 0 ? (estado.tasa_par / estado.tasa_bcv) + 0.05 : 1;
+      const _factorPrint2 = colchonFactor();
       document.getElementById('dc-equiv').innerHTML = '<strong>Cobrar en Bs.:</strong> ' + fmtBS(total * _factorPrint2 * estado.tasa_bcv);
       document.querySelector('.dc-num-label').textContent = 'PRESUPUESTO';
       logBitacora('factura', `Creó presupuesto ${numero} para ${preEstado.cliente.nombre} (válido 45 días) · ${nombreEmpresa(estado.empresa)}`, false);
@@ -9184,7 +9200,7 @@ function renderHistorial(){
       if (!f) { notif('Factura no encontrada', 'error'); return; }
       cerrarDetalleFactura();
       // Bs a tasa del DÍA (no congelada)
-      const factorHoy = estado.tasa_bcv > 0 ? (estado.tasa_par / estado.tasa_bcv) + 0.05 : 1;
+      const factorHoy = colchonFactor();
       const saldoBsHoy = f.saldo_pendiente * factorHoy * estado.tasa_bcv;
       let modal = document.getElementById('modal-abono');
       if (!modal) {
@@ -9337,7 +9353,7 @@ function renderHistorial(){
       // se considera completo (incluye colchón BCV). Topear al saldo pendiente.
       const f = TODAS_FACTURAS.find(x => x.num === num) || FACTURAS_COBRAR.find(x => x.num === num);
       if (f) {
-        const factorHoy = estado.tasa_bcv > 0 ? (estado.tasa_par / estado.tasa_bcv) + 0.05 : 1;
+        const factorHoy = colchonFactor();
         const saldoBsHoy = f.saldo_pendiente * factorHoy * estado.tasa_bcv;
         if (moneda === 'Bs') {
           // ¿El monto en Bs cubre o excede el "Cobrar HOY"? → es pago completo del saldo
