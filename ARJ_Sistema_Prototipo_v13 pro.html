@@ -9190,7 +9190,14 @@ function renderHistorial(){
       document.getElementById('dc-items').innerHTML = items.map((it, i) => `<tr><td>${i + 1}</td><td><strong>${it.cod_alt}</strong></td><td>${it.descripcion}</td><td class="num">${it.cantidad}</td><td class="num">${fmtUSD(it.precio_unitario)}</td><td class="num"><strong>${fmtUSD(it.total_linea)}</strong></td></tr>`).join('');
       document.getElementById('dc-subtotal').textContent = fmtUSD(f.total);
       document.getElementById('dc-total').textContent = fmtUSD(f.total);
-      document.getElementById('dc-equiv').innerHTML = '<strong>Cobrar en Bs.:</strong> ' + fmtBS(f.total * factor * tbcv);
+     // Línea 1: el Bs del día de emisión (congelado, idéntico al papel original)
+      let equivHTML = '<strong>Cobrar en Bs.:</strong> ' + fmtBS(f.total * factor * tbcv) + ' <span style="font-size:10px;color:var(--dgray)">(al ' + f.fecha + ')</span>';
+      // Línea 2: si es crédito con saldo pendiente, el saldo a tasa de HOY
+      if (f.tipo_pago === 'credito' && f.estado !== 'anulada' && f.saldo_pendiente > 0.009) {
+        const _bsHoy = f.saldo_pendiente * colchonFactor() * estado.tasa_bcv;
+        equivHTML += '<br><strong style="color:var(--blue)">Saldo a cobrar HOY:</strong> ' + fmtBS(_bsHoy) + ' <span style="font-size:10px;color:var(--dgray)">(saldo ' + fmtUSD(f.saldo_pendiente) + ' a tasa del día)</span>';
+      }
+      document.getElementById('dc-equiv').innerHTML = equivHTML;
       document.querySelector('.dc-num-label').textContent = 'FACTURA';
       const h2r = document.querySelector('#modal-print-cotizacion h2');
   if(h2r) h2r.innerHTML = '<i class="ti ti-printer"></i> Factura: ' + f.num;
