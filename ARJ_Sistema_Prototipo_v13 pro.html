@@ -4411,6 +4411,7 @@ GEN-3401    5"
         <i class="ti ti-alert-triangle"></i> <strong>Acción irreversible.</strong> El stock será devuelto al inventario,
         la factura quedará marcada como ANULADA y los pagos registrados serán reversados.
       </div>
+      <div id="anular-devolucion" style="display:none;background:#FFF8E1;border:1px solid #E6C860;border-left:4px solid var(--gold);border-radius:6px;padding:10px 12px;font-size:12.5px;color:#5D4037;margin-bottom:14px"></div>
       <div class="field-row" style="flex-direction:column;align-items:flex-start;gap:6px">
         <label>Motivo de la anulación (obligatorio):</label>
         <textarea id="anular-motivo" placeholder="Ej: Cliente devolvió la mercancía sin abrir, error en facturación..."
@@ -7784,6 +7785,20 @@ GEN-3401    5"
       facturaAnular = { num, cliente };
       document.getElementById('anular-info').textContent = `${num} · ${cliente}`;
       document.getElementById('anular-motivo').value = '';
+      // ¿Tiene abonos? → advertir cuánto dinero hay que devolver al cliente
+      const _fA = TODAS_FACTURAS.find(f => f.num === num);
+      const _abonado = _fA ? (_fA.abonado || 0) : 0;
+      const _dev = document.getElementById('anular-devolucion');
+      if (_dev) {
+        if (_abonado > 0.009) {
+          const _bsHoyDev = _abonado * colchonFactor() * estado.tasa_bcv;
+          _dev.style.display = 'block';
+          _dev.innerHTML = '<i class="ti ti-cash-banknote"></i> <strong>Esta factura tiene abonos por ' + fmtUSD(_abonado) + '.</strong><br>Al anular debes devolver ese dinero al cliente: <strong>' + fmtUSD(_abonado) + '</strong> o su equivalente hoy <strong>' + fmtBS(_bsHoyDev) + '</strong>. La devolución quedará registrada.';
+        } else {
+          _dev.style.display = 'none';
+          _dev.innerHTML = '';
+        }
+      }
       document.getElementById('modal-anular').classList.add('show');
     }
     function cerrarAnular() { document.getElementById('modal-anular').classList.remove('show'); facturaAnular = null; }
@@ -7837,6 +7852,26 @@ GEN-3401    5"
             }
           }
 
+          // 3b. Si tenía abonos, registrar la DEVOLUCIÓN como pago negativo
+          // Regla de negocio: al anular con abonos, el dinero SE DEVUELVE al cliente.
+          // Se registra en `pagos` (mismo lugar por donde entró) con monto negativo,
+          // valorado en USD a tasa de HOY (anti-descapitalización, igual que al cobrar).
+          const abonadoDev = factura.abonado || 0;
+          if (abonadoDev > 0.009) {
+            const { error: devErr } = await _sb.from('pagos').insert({
+              factura_id: factura.id,
+              monto_usd: -abonadoDev,
+              monto_bs: -(abonadoDev * colchonFactor() * estado.tasa_bcv),
+              tasa_usada: estado.tasa_par,
+              metodo: 'Devolución por anulación',
+              referencia: 'Anulación ' + factura.num + ' — ' + motivo,
+              registrado_por: estado.usuario || 'Sistema'
+            });
+            if (devErr) console.error('[ARJ] Error registrando devolución:', devErr);
+            _sbLogBitacora(estado.usuario, factura.empresa, 'anulacion',
+              'Devolvió ' + fmtUSD(abonadoDev) + ' al cliente por anulación de ' + factura.num, true);
+          }
+
           _sbLogBitacora(estado.usuario, factura.empresa, 'anulacion',
             'Anuló ' + facturaAnular.num + ' (' + facturaAnular.cliente + ') — ' + motivo, true);
         }
@@ -7848,7 +7883,8 @@ GEN-3401    5"
         if (idxCxC >= 0) FACTURAS_COBRAR.splice(idxCxC, 1);
 
         logBitacora('anulacion', `Anuló ${facturaAnular.num} (${facturaAnular.cliente}) — motivo: "${motivo}"`, true);
-        notif(`✓ Factura ${facturaAnular.num} anulada. Stock devuelto.`, 'success');
+        const _abonadoNotif = factura.abonado || 0;
+        notif(`✓ Factura ${facturaAnular.num} anulada. Stock devuelto.` + (_abonadoNotif > 0.009 ? ` Devolución al cliente registrada: ${fmtUSD(_abonadoNotif)}.` : ''), 'success');
         renderHistorial();
         renderCobrar();
         cerrarAnular();
@@ -9190,14 +9226,7 @@ function renderHistorial(){
       document.getElementById('dc-items').innerHTML = items.map((it, i) => `<tr><td>${i + 1}</td><td><strong>${it.cod_alt}</strong></td><td>${it.descripcion}</td><td class="num">${it.cantidad}</td><td class="num">${fmtUSD(it.precio_unitario)}</td><td class="num"><strong>${fmtUSD(it.total_linea)}</strong></td></tr>`).join('');
       document.getElementById('dc-subtotal').textContent = fmtUSD(f.total);
       document.getElementById('dc-total').textContent = fmtUSD(f.total);
-     // Línea 1: el Bs del día de emisión (congelado, idéntico al papel original)
-      let equivHTML = '<strong>Cobrar en Bs.:</strong> ' + fmtBS(f.total * factor * tbcv) + ' <span style="font-size:10px;color:var(--dgray)">(al ' + f.fecha + ')</span>';
-      // Línea 2: si es crédito con saldo pendiente, el saldo a tasa de HOY
-      if (f.tipo_pago === 'credito' && f.estado !== 'anulada' && f.saldo_pendiente > 0.009) {
-        const _bsHoy = f.saldo_pendiente * colchonFactor() * estado.tasa_bcv;
-        equivHTML += '<br><strong style="color:var(--blue)">Saldo a cobrar HOY:</strong> ' + fmtBS(_bsHoy) + ' <span style="font-size:10px;color:var(--dgray)">(saldo ' + fmtUSD(f.saldo_pendiente) + ' a tasa del día)</span>';
-      }
-      document.getElementById('dc-equiv').innerHTML = equivHTML;
+      document.getElementById('dc-equiv').innerHTML = '<strong>Cobrar en Bs.:</strong> ' + fmtBS(f.total * factor * tbcv);
       document.querySelector('.dc-num-label').textContent = 'FACTURA';
       const h2r = document.querySelector('#modal-print-cotizacion h2');
   if(h2r) h2r.innerHTML = '<i class="ti ti-printer"></i> Factura: ' + f.num;
