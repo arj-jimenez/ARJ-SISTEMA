@@ -3505,33 +3505,42 @@ GEN-3401    5"
     <!-- ───── PRESUPUESTOS (antes COTIZACIONES) ───── -->
     <div class="page" id="page-cotizaciones">
       <h1 class="page-title"><i class="ti ti-file-text"></i> Presupuestos</h1>
-      <p class="page-sub">Propuestas comerciales al cliente · Vigencia 45 días · No descuentan stock · Se eliminan
-        automáticamente al vencer</p>
+      <p class="page-sub">Propuestas comerciales al cliente · Vigencia 45 días · No descuentan stock · Nada se borra:
+        los rechazados y vencidos quedan archivados</p>
 
       <div class="help-box">
         <i class="ti ti-info-circle"></i>
         <div><strong>¿Para qué sirven?</strong> Cuando un cliente pregunta precio antes de comprar. Generas un PDF
-          profesional con validez de 45 días. Si decide comprar, se convierte en venta automáticamente (Facturación). Si
-          no lo convierte en 45 días, el presupuesto se elimina del sistema.</div>
+          profesional con validez de 45 días. Si decide comprar, se convierte en venta (Facturación). Si
+          no, puedes marcarlo como rechazado: se archiva pero nunca se borra, para poder medir cuántos presupuestos se
+          convierten en venta.</div>
       </div>
 
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
         <div style="display:flex;gap:8px">
           <div class="kpi-card blue" style="margin:0;padding:10px 14px">
             <div class="kpi-label">Activas</div>
-            <div class="kpi-val" style="font-size:18px">0</div>
+            <div class="kpi-val" style="font-size:18px" id="pre-kpi-activas">0</div>
           </div>
           <div class="kpi-card gold" style="margin:0;padding:10px 14px">
             <div class="kpi-label">Por vencer</div>
-            <div class="kpi-val" style="font-size:18px;color:var(--gold)">0</div>
+            <div class="kpi-val" style="font-size:18px;color:var(--gold)" id="pre-kpi-porvencer">0</div>
           </div>
           <div class="kpi-card red" style="margin:0;padding:10px 14px">
             <div class="kpi-label">Vencidas</div>
-            <div class="kpi-val" style="font-size:18px;color:var(--red)">0</div>
+            <div class="kpi-val" style="font-size:18px;color:var(--red)" id="pre-kpi-vencidas">0</div>
+          </div>
+          <div class="kpi-card" style="margin:0;padding:10px 14px">
+            <div class="kpi-label">Convertidas</div>
+            <div class="kpi-val" style="font-size:18px;color:var(--green)" id="pre-kpi-convertidas">0</div>
+            <div style="font-size:10px;color:var(--dgray)" id="pre-kpi-tasa">—</div>
           </div>
         </div>
-        <button class="btn btn-primary" onclick="nuevaCotizacion()"><i class="ti ti-plus"></i> Nuevo
-          presupuesto</button>
+        <div style="display:flex;gap:8px;align-items:center">
+          <label style="font-size:12px;color:var(--dgray);cursor:pointer;user-select:none"><input type="checkbox" id="pre-ver-rechazados" onchange="renderCotizaciones()" style="vertical-align:middle"> Ver rechazados</label>
+          <button class="btn btn-primary" onclick="nuevaCotizacion()"><i class="ti ti-plus"></i> Nuevo
+            presupuesto</button>
+        </div>
       </div>
 
       <div class="card">
@@ -4982,6 +4991,13 @@ GEN-3401    5"
         const { data: cots, error: e4 } = await _sb.from('cotizaciones').select('*').order('fecha', { ascending: false }).limit(50);
         if (e4) throw e4;
         if (cots) {
+          // Conteo REAL de ítems por cotización (antes estaba hardcodeado en 0)
+          const _cotIds = cots.map(c => c.id).filter(Boolean);
+          const _itemCount = {};
+          if (_cotIds.length > 0) {
+            const { data: _cits } = await _sb.from('cotizacion_items').select('cotizacion_id').in('cotizacion_id', _cotIds);
+            (_cits || []).forEach(ci => { _itemCount[ci.cotizacion_id] = (_itemCount[ci.cotizacion_id] || 0) + 1; });
+          }
           COTIZACIONES.length = 0;
           cots.forEach(c => {
             const vence = new Date(c.fecha_vence);
@@ -4995,7 +5011,7 @@ GEN-3401    5"
               fecha: new Date(c.fecha).toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' }),
               vence: vence.toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' }),
               total: parseFloat(c.subtotal_usd) || 0, estado: est, dias_restantes: diasRest,
-              items: 0, vendedor: c.vendedor
+              items: _itemCount[c.id] || 0, vendedor: c.vendedor
             });
           });
         }
@@ -5154,6 +5170,17 @@ GEN-3401    5"
         const { data: factInsert, error: factErr } = await _sb.from('facturas').insert(facturaObj).select().single();
         if (factErr) { notif('Error creando factura: ' + factErr.message, 'error'); return; }
         const facturaId = factInsert.id;
+
+        // 2b. Si esta factura nació de una cotización, marcarla 'convertida' AHORA
+        // (no antes: si el usuario abandonaba el carrito, el presupuesto seguía activo)
+        if (typeof _cotOrigen !== 'undefined' && _cotOrigen && _cotOrigen.id) {
+          await _sb.from('cotizaciones').update({ estado: 'convertida' }).eq('id', _cotOrigen.id);
+          const _cotL = COTIZACIONES.find(c => c.id === _cotOrigen.id);
+          if (_cotL) _cotL.estado = 'convertida';
+          _sbLogBitacora(estado.usuario, estado.empresa, 'factura',
+            'Emitió ' + numFactura + ' desde presupuesto ' + _cotOrigen.num, false);
+          _cotOrigen = null;
+        }
 
         // 3. Crear ítems de la factura
         const itemsDB = estado.items.map(it => ({
@@ -6355,6 +6382,7 @@ GEN-3401    5"
     function actualizarPreciosPorTier() {
       const dto = (estado.empresa === 'directa' && estado.dto_manual > 0) ? estado.dto_manual : 0;
       estado.items.forEach(it => {
+        if (it.precio_fijo) return; // precio cotizado en presupuesto: se honra, no se recalcula
         if (dto > 0) {
           it.precio = Math.round(precioPublico(it.fob) * (1 - dto / 100) * 100) / 100;
         } else {
@@ -6712,6 +6740,7 @@ GEN-3401    5"
 
     function limpiarFactura() {
       estado.items = []; estado.pagos = []; estado.cliente = null; estado.tier = 'Publico';
+      if (typeof _cotOrigen !== 'undefined') _cotOrigen = null; // abandonó el carrito → el presupuesto sigue activo
       estado.dto_manual = 0; estado.dto_motivo = '';
       document.getElementById('cliente-select').value = '';
       document.getElementById('info-cliente').textContent = 'Selecciona un cliente para empezar';
@@ -7442,30 +7471,106 @@ GEN-3401    5"
       const tbody = document.getElementById('cotizaciones-body');
       if (!tbody) return;
       // FILTRO POR EMPRESA
-      const filtradas = COTIZACIONES.filter(c => c.empresa === estado.empresa);
+      const delaEmpresa = COTIZACIONES.filter(c => c.empresa === estado.empresa);
+
+      // KPIs vivos (antes estaban en 0 fijo en el HTML)
+      const nAct = delaEmpresa.filter(c => c.estado === 'activa').length;
+      const nPor = delaEmpresa.filter(c => c.estado === 'por_vencer').length;
+      const nVen = delaEmpresa.filter(c => c.estado === 'vencida').length;
+      const nCon = delaEmpresa.filter(c => c.estado === 'convertida').length;
+      const nRec = delaEmpresa.filter(c => c.estado === 'rechazada').length;
+      const setK = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+      setK('pre-kpi-activas', nAct); setK('pre-kpi-porvencer', nPor);
+      setK('pre-kpi-vencidas', nVen); setK('pre-kpi-convertidas', nCon);
+      const cerrados = nCon + nRec;
+      const tasaEl = document.getElementById('pre-kpi-tasa');
+      if (tasaEl) tasaEl.textContent = cerrados > 0 ? (Math.round(nCon / cerrados * 100) + '% de cierre') : '—';
+
+      // Los rechazados se ocultan salvo que el usuario los pida
+      const verRech = document.getElementById('pre-ver-rechazados')?.checked;
+      const filtradas = delaEmpresa.filter(c => verRech ? true : c.estado !== 'rechazada');
+
       if (filtradas.length === 0) {
         tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:30px;color:var(--dgray)">Sin presupuestos en ' + nombreEmpresa(estado.empresa) + '</td></tr>';
         return;
       }
       tbody.innerHTML = filtradas.map(c => {
         let badgeColor, badgeText, badgeIcon;
-        if (c.estado === 'vencida') { badgeColor = 'var(--red)'; badgeText = 'VENCIDA'; badgeIcon = 'ti-x-circle'; }
+        if (c.estado === 'rechazada') { badgeColor = 'var(--dgray)'; badgeText = 'RECHAZADA'; badgeIcon = 'ti-archive'; }
+        else if (c.estado === 'convertida') { badgeColor = 'var(--blue)'; badgeText = 'CONVERTIDA'; badgeIcon = 'ti-file-invoice'; }
+        else if (c.estado === 'vencida') { badgeColor = 'var(--red)'; badgeText = 'VENCIDA'; badgeIcon = 'ti-x-circle'; }
         else if (c.estado === 'por_vencer') { badgeColor = 'var(--gold)'; badgeText = 'POR VENCER'; badgeIcon = 'ti-alert-triangle'; }
         else { badgeColor = 'var(--green)'; badgeText = 'ACTIVA'; badgeIcon = 'ti-circle-check'; }
         const diasTxt = c.dias_restantes >= 0 ? `${c.dias_restantes} días restantes` : `Venció hace ${Math.abs(c.dias_restantes)} días`;
-        return `<tr>
+        const puedeFacturar = c.estado === 'activa' || c.estado === 'por_vencer';
+        const puedeRechazar = c.estado !== 'convertida' && c.estado !== 'rechazada';
+        return `<tr${c.estado === 'rechazada' ? ' style="opacity:0.55"' : ''}>
       <td><strong>${c.num}</strong><div style="font-size:10.5px;color:var(--dgray)">${c.items} ítems · ${c.vendedor}</div></td>
       <td>${c.cliente}</td>
       <td style="font-size:11.5px">${c.fecha}</td>
       <td style="font-size:11.5px">${c.vence}<div style="font-size:10.5px;color:var(--dgray)">${diasTxt}</div></td>
       <td class="num"><strong>${fmtUSD(c.total)}</strong></td>
       <td><span style="background:${badgeColor}22;color:${badgeColor};padding:3px 8px;border-radius:10px;font-size:10.5px;font-weight:600"><i class="ti ${badgeIcon}"></i> ${badgeText}</span></td>
-      <td style="text-align:center">
-        <button class="btn btn-secondary btn-sm" onclick="notif('Demo: ver detalle/imprimir PDF','warning')" title="Ver"><i class="ti ti-eye"></i></button>
-        ${c.estado !== 'vencida' ? `<button class="btn btn-green btn-sm" onclick="convertirACotizacion('${c.num}')" title="Convertir a factura"><i class="ti ti-file-invoice"></i></button>` : ''}
+      <td style="text-align:center;white-space:nowrap">
+        <button class="btn btn-secondary btn-sm" onclick="verPresupuesto(${c.id || 'null'})" title="Ver / imprimir"><i class="ti ti-eye"></i></button>
+        ${puedeFacturar ? `<button class="btn btn-green btn-sm" onclick="convertirCotizacionAFactura(${c.id || 'null'},'${c.num}')" title="Convertir a factura"><i class="ti ti-file-invoice"></i></button>` : ''}
+        ${puedeRechazar ? `<button class="btn btn-red btn-sm" onclick="rechazarPresupuesto(${c.id || 'null'},'${c.num}')" title="Marcar como rechazado (se archiva, no se borra)"><i class="ti ti-archive"></i></button>` : ''}
       </td>
     </tr>`;
       }).join('');
+    }
+
+    // Marcar un presupuesto como rechazado. NUNCA se borra de Supabase:
+    // conservar el historial permite medir la tasa de conversión real.
+    async function rechazarPresupuesto(cotId, cotNum) {
+      if (!cotId) { notif('Presupuesto sin ID', 'error'); return; }
+      if (!confirm('¿Marcar ' + cotNum + ' como RECHAZADO?\n\nNo se borra: se archiva y deja de aparecer en la lista.\nPuedes verlo activando "Ver rechazados".')) return;
+      try {
+        const { error } = await _sb.from('cotizaciones').update({ estado: 'rechazada' }).eq('id', cotId);
+        if (error) { notif('Error: ' + error.message, 'error'); return; }
+        const cl = COTIZACIONES.find(c => c.id === cotId);
+        if (cl) cl.estado = 'rechazada';
+        renderCotizaciones();
+        notif('✓ ' + cotNum + ' archivado como rechazado', 'success');
+        logBitacora('factura', 'Marcó presupuesto ' + cotNum + ' como rechazado', false);
+      } catch (err) { notif('Error: ' + (err.message || err), 'error'); }
+    }
+
+    // Ver / reimprimir un presupuesto guardado (antes era un notif de demo)
+    async function verPresupuesto(cotId) {
+      if (!cotId) { notif('Presupuesto sin ID, no se puede mostrar', 'error'); return; }
+      try {
+        const { data: cot, error: e1 } = await _sb.from('cotizaciones').select('*').eq('id', cotId).single();
+        if (e1 || !cot) { notif('Presupuesto no encontrado', 'error'); return; }
+        const { data: items } = await _sb.from('cotizacion_items').select('*').eq('cotizacion_id', cotId);
+        const cli = CLIENTES.find(c => c.id === cot.cliente_id);
+        const fechaTxt = new Date(cot.fecha).toLocaleDateString('es-VE');
+        const venceTxt = new Date(cot.fecha_vence).toLocaleDateString('es-VE');
+        const total = parseFloat(cot.subtotal_usd) || 0;
+        document.getElementById('dc-numero').textContent = cot.numero;
+        document.getElementById('dc-fecha').textContent = fechaTxt;
+        const f2 = document.getElementById('dc-fecha2'); if (f2) f2.textContent = fechaTxt;
+        document.getElementById('dc-vence').textContent = venceTxt;
+        document.getElementById('dc-cli-nombre').textContent = cot.cliente_nombre || (cli ? cli.nombre : '—');
+        document.getElementById('dc-cli-rif').textContent = 'RIF: ' + (cli ? cli.rif : '—');
+        document.getElementById('dc-cli-tel').textContent = 'Teléfono: ' + (cli && cli.tel ? cli.tel : '—');
+        document.getElementById('dc-cli-dir').textContent = 'Dirección: ' + (cli && cli.direccion ? cli.direccion : '—');
+        document.getElementById('dc-vendedor').textContent = cot.vendedor || '—';
+        document.getElementById('dc-empresa-op').textContent = nombreEmpresa(cot.empresa);
+        document.getElementById('dc-items').innerHTML = (items || []).map((it, i) =>
+          `<tr><td>${i + 1}</td><td><strong>${it.cod_alt}</strong></td><td>${it.descripcion}</td><td class="num">${it.cantidad}</td><td class="num">${fmtUSD(parseFloat(it.precio_unitario))}</td><td class="num"><strong>${fmtUSD(parseFloat(it.total_linea))}</strong></td></tr>`).join('');
+        document.getElementById('dc-subtotal').textContent = fmtUSD(total);
+        document.getElementById('dc-total').textContent = fmtUSD(total);
+        // Presupuesto: el Bs se muestra a tasa de HOY (es una oferta viva, no un documento fiscal)
+        document.getElementById('dc-equiv').innerHTML = '<strong>Cobrar en Bs.:</strong> ' + fmtBS(total * colchonFactor() * estado.tasa_bcv) + ' <span style="font-size:10px;color:var(--dgray)">(a tasa de hoy)</span>';
+        document.querySelector('.dc-num-label').textContent = 'PRESUPUESTO';
+        const h2v = document.querySelector('#modal-print-cotizacion h2');
+        if (h2v) h2v.innerHTML = '<i class="ti ti-file-text"></i> Presupuesto: ' + cot.numero;
+        document.getElementById('modal-print-cotizacion').classList.add('show');
+      } catch (err) {
+        console.error('[ARJ] Error mostrando presupuesto:', err);
+        notif('Error: ' + (err.message || err), 'error');
+      }
     }
 
     // ─── NUEVO FLUJO DE PRESUPUESTO (pantalla completa) ───
@@ -7671,18 +7776,73 @@ GEN-3401    5"
       notif(`✓ Presupuesto ${numero} guardado — válido 45 días`, 'success');
     }
 
-    function preConvertirVenta() {
+    async function preConvertirVenta() {
       if (!preEstado.cliente) { notif('Selecciona un cliente', 'error'); return; }
       if (preEstado.items.length === 0) { notif('Agrega al menos un producto', 'error'); return; }
-      // Pasar los datos a la facturación
+
+      // FLUJO UNIFICADO: guardar el presupuesto PRIMERO, luego convertir por el
+      // mismo camino que el botón de la lista. Si el usuario abandona el carrito,
+      // el presupuesto queda guardado y ACTIVO — nunca se pierde trabajo.
+      if (_sb && _supabaseConectado) {
+        notif('Guardando presupuesto...', 'warning');
+        try {
+          const ahora = new Date();
+          const venc = new Date(ahora.getTime() + 45 * 86400000);
+          const total = preEstado.items.reduce((a, i) => a + i.cant * i.precio, 0);
+          const prefijo = estado.empresa === 'directa' ? 'PRE-VD' : 'PRE-DT';
+          const tipoContador = estado.empresa === 'directa' ? 'presupuesto_vd' : 'presupuesto_dist';
+          const anio = ahora.getFullYear();
+          let numero = '';
+          const { data: cont, error: ce } = await _sb.from('contadores').select('*').eq('tipo', tipoContador).eq('anio', anio).single();
+          if (!ce && cont) {
+            const nuevoNum = cont.ultimo_numero + 1;
+            await _sb.from('contadores').update({ ultimo_numero: nuevoNum }).eq('id', cont.id);
+            numero = prefijo + '-' + anio + '-' + String(nuevoNum).padStart(4, '0');
+          } else { numero = prefijo + '-' + anio + '-' + String(Math.floor(Math.random() * 900) + 100).padStart(4, '0'); }
+
+          const { data: cotIns, error: cotErr } = await _sb.from('cotizaciones').insert({
+            numero, empresa: estado.empresa, cliente_id: preEstado.cliente.id,
+            cliente_nombre: preEstado.cliente.nombre, vendedor: estado.usuario || 'Sistema',
+            fecha_vence: venc.toISOString(), subtotal_usd: total,
+            tasa_par: estado.tasa_par, tasa_bcv: estado.tasa_bcv, estado: 'activa'
+          }).select().single();
+          if (cotErr || !cotIns) { notif('Error guardando presupuesto: ' + (cotErr ? cotErr.message : ''), 'error'); return; }
+
+          const itemsDB = preEstado.items.map(it => ({
+            cotizacion_id: cotIns.id, producto_id: it.producto_id || null,
+            cod_alt: it.cod_alt, descripcion: it.desc, cantidad: it.cant,
+            fob_unitario: it.fob || 0, precio_unitario: it.precio,
+            total_linea: it.cant * it.precio, tier: preEstado.tier || 'Publico'
+          }));
+          await _sb.from('cotizacion_items').insert(itemsDB);
+
+          COTIZACIONES.unshift({
+            id: cotIns.id, num: numero, empresa: estado.empresa, cliente: preEstado.cliente.nombre,
+            fecha: ahora.toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' }),
+            vence: venc.toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' }),
+            total, estado: 'activa', dias_restantes: 45, items: preEstado.items.length, vendedor: estado.usuario
+          });
+          _sbLogBitacora(estado.usuario, estado.empresa, 'factura', 'Creó presupuesto ' + numero + ' (convertir ahora) para ' + preEstado.cliente.nombre, false);
+
+          preLimpiar();
+          await convertirCotizacionAFactura(cotIns.id, numero, true); // sin confirm: el usuario ya decidió
+          return;
+        } catch (err) {
+          console.error('[ARJ] Error en convertir ahora:', err);
+          notif('Error: ' + (err.message || err), 'error');
+          return;
+        }
+      }
+
+      // FALLBACK sin conexión: transferencia directa al carrito (comportamiento anterior)
       estado.cliente = preEstado.cliente;
       estado.tier = preEstado.tier;
       estado.items = preEstado.items.map(it => {
         const p = PRODUCTOS.find(x => x.cod_alt === it.cod_alt);
         return {
-          cod_alt: it.cod_alt, cod_orig: p ? p.cod_orig : '', desc: it.desc, marca: it.marca, fob: it.fob,
+          cod: it.cod_alt, cod_alt: it.cod_alt, cod_orig: p ? p.cod_orig : '', desc: it.desc, marca: it.marca, fob: it.fob,
           stock_vd: p ? p.stock_vd : 0, stock_dist: p ? p.stock_dist : 0, precio_manual: p ? p.precio_manual : null,
-          cant: it.cant, precio: it.precio
+          cant: it.cant, precio: it.precio, precio_fijo: true
         };
       });
       estado.pagos = [];
@@ -8891,18 +9051,10 @@ GEN-3401    5"
 
     // ─── ELIMINACIÓN AUTOMÁTICA DE PRESUPUESTOS VENCIDOS ────────
     function limpiarPresupuestosVencidos() {
-      const antes = COTIZACIONES.length;
-      COTIZACIONES = COTIZACIONES.filter(c => {
-        // Mantener si: no está vencida, o está vencida pero por menos de 1 día (gracia)
-        if (c.estado === 'vencida' && c.dias_restantes < -1) {
-          logBitacora('factura', `Presupuesto ${c.num} eliminado automáticamente (vencido hace ${Math.abs(c.dias_restantes)} días)`, false);
-          return false;
-        }
-        return true;
-      });
-      if (antes !== COTIZACIONES.length) {
-        notif(`${antes - COTIZACIONES.length} presupuesto(s) vencido(s) eliminado(s) automáticamente`, 'warning');
-      }
+      // POLÍTICA: nada se borra. Los vencidos se conservan (regla "NUNCA DELETE en
+      // cotizaciones"). Se quedan visibles con badge VENCIDA; para sacarlos de la
+      // vista, el usuario los marca como rechazados.
+      return;
     }
 
     // ─── EXPORTACIÓN FISCAL ─────────────────────────────────────
@@ -9424,9 +9576,13 @@ function renderHistorial(){
   renderCobrar();
 }
     // CONVERTIR COTIZACIÓN A FACTURA
-    async function convertirCotizacionAFactura(cotId, cotNum) {
+    // Diseño: aquí SOLO se carga el carrito. La cotización se marca 'convertida'
+    // únicamente cuando la factura se EMITE con éxito (ver emitirFactura → _cotOrigen).
+    // Así, si el usuario abandona el carrito, el presupuesto sigue activo.
+    let _cotOrigen = null; // { id, num } de la cotización cargada al carrito
+    async function convertirCotizacionAFactura(cotId, cotNum, skipConfirm) {
       if (!cotId) { notif('Cotización sin ID, no se puede convertir', 'error'); return; }
-      if (!confirm('¿Convertir cotización ' + cotNum + ' a factura?\n\nSe cargarán los productos al carrito de facturación y podrás emitir la factura.')) return;
+      if (!skipConfirm && !confirm('¿Convertir cotización ' + cotNum + ' a factura?\n\nSe cargarán los productos al carrito de facturación y podrás emitir la factura.')) return;
 
       try {
         // Cargar items de la cotización desde Supabase
@@ -9434,6 +9590,7 @@ function renderHistorial(){
         if (e1 || !cot) { notif('Cotización no encontrada', 'error'); return; }
         const { data: items, error: e2 } = await _sb.from('cotizacion_items').select('*').eq('cotizacion_id', cotId);
         if (e2) { notif('Error cargando items', 'error'); return; }
+        if (!items || items.length === 0) { notif('La cotización no tiene ítems guardados', 'error'); return; }
 
         // Limpiar carrito actual
         estado.items = [];
@@ -9443,6 +9600,8 @@ function renderHistorial(){
         const cliente = CLIENTES.find(c => c.id === cot.cliente_id);
         if (cliente) {
           estado.cliente = cliente;
+        } else {
+          notif('⚠ El cliente original no está en la lista — selecciónalo manualmente', 'warning');
         }
 
         // Cargar items al carrito
@@ -9453,35 +9612,32 @@ function renderHistorial(){
             desc: it.descripcion,
             cant: it.cantidad,
             precio: parseFloat(it.precio_unitario),
+            precio_fijo: true, // precio COTIZADO: compromiso comercial, no se recalcula
             fob: parseFloat(it.fob_unitario) || 0,
             subtotal: parseFloat(it.total_linea)
           });
         });
 
-        // Marcar cotización como convertida
-        await _sb.from('cotizaciones').update({ estado: 'convertida' }).eq('id', cotId);
-        const cotLocal = COTIZACIONES.find(c => c.id === cotId);
-        if (cotLocal) cotLocal.estado = 'convertida';
+        // Anotar el origen — la marca 'convertida' se hace al EMITIR
+        _cotOrigen = { id: cotId, num: cotNum };
 
-        // Navegar a facturación
-        navTo('factura');
-
-        // Seleccionar cliente en el dropdown
-        if (cliente) {
-          setTimeout(() => {
+        // Navegar a facturación (la página se llama 'facturacion')
+        navTo('facturacion');
+        setTimeout(() => {
+          if (cliente) {
             const sel = document.getElementById('cliente-select');
             if (sel) {
               sel.value = cliente.id;
               seleccionarCliente();
             }
-            renderItems();
-            recalcular();
-            agregarPago();
-          }, 200);
-        }
+          }
+          renderItems();
+          recalcular();
+          agregarPago();
+        }, 200);
 
         notif('✓ Cotización ' + cotNum + ' cargada al carrito. Revisa y emite la factura.', 'success');
-        logBitacora('factura', 'Convirtió cotización ' + cotNum + ' a borrador de factura', false);
+        logBitacora('factura', 'Cargó cotización ' + cotNum + ' al carrito de facturación', false);
       } catch (err) {
         console.error('[ARJ] Error convirtiendo cotización:', err);
         notif('Error: ' + (err.message || err), 'error');
