@@ -4954,6 +4954,7 @@ GEN-3401    5"
               estado: est, dias: diasVence,
               tipo_pago: f.tipo_pago, tasa_par: parseFloat(f.tasa_par),
               tasa_bcv: parseFloat(f.tasa_bcv),
+              factor_bs: f.factor_bs != null ? parseFloat(f.factor_bs) : null,
               descuento_manual: parseFloat(f.descuento_manual) || 0,
               motivo_descuento: f.motivo_descuento || '',
               pidio_fiscal: f.pidio_fiscal
@@ -5146,9 +5147,9 @@ GEN-3401    5"
           saldo_pendiente: tipoPago === 'contado' ? 0 : subtotal,
           descuento_manual: descManual,
           motivo_descuento: motivoDesc,
-          pidio_fiscal: pidioFiscal
+          pidio_fiscal: pidioFiscal,
+          factor_bs: colchonFactor()
         };
-
         const { data: factInsert, error: factErr } = await _sb.from('facturas').insert(facturaObj).select().single();
         if (factErr) { notif('Error creando factura: ' + factErr.message, 'error'); return; }
         const facturaId = factInsert.id;
@@ -5235,7 +5236,8 @@ GEN-3401    5"
           total: subtotal, abonado: tipoPago === 'contado' ? subtotal : 0,
           saldo_pendiente: tipoPago === 'contado' ? 0 : subtotal,
           estado: facturaObj.estado,
-          dias: diasCredito || 0, tipo_pago: tipoPago, tasa_par: estado.tasa_par, tasa_bcv: estado.tasa_bcv
+          dias: diasCredito || 0, tipo_pago: tipoPago, tasa_par: estado.tasa_par, tasa_bcv: estado.tasa_bcv,
+          factor_bs: facturaObj.factor_bs
         };
         TODAS_FACTURAS.unshift(objFactura);
         VENTAS_RECIENTES.unshift({
@@ -5797,16 +5799,18 @@ GEN-3401    5"
     //   brecha 20% → colchón 2% (piso) · brecha 44% → 4,4% · brecha 90% → 8% (techo)
     // Devuelve el factor que convierte precio USD-paralelo a USD-BCV:
     //   precioBCV = precioUSD × colchonFactor();  Bs = precioBCV × tasa_bcv
-    function colchonFactor() {
-      if (!(estado.tasa_bcv > 0) || !(estado.tasa_par > 0)) return 1;
-      const base = estado.tasa_par / estado.tasa_bcv;   // factor sin colchón
-      const brecha = base - 1;                           // ej: 0.44 = 44%
-      let colchon = 0.10 * brecha;                       // 10% de la brecha
-      if (colchon < 0.02) colchon = 0.02;                // piso 2%
-      if (colchon > 0.08) colchon = 0.08;                // techo 8%
+    function colchonFactorCon(tpar, tbcv) {
+      if (!(tbcv > 0) || !(tpar > 0)) return 1;
+      const base = tpar / tbcv;
+      const brecha = base - 1;
+      let colchon = 0.10 * brecha;
+      if (colchon < 0.02) colchon = 0.02;
+      if (colchon > 0.08) colchon = 0.08;
       return base * (1 + colchon);
     }
-
+    function colchonFactor() {
+      return colchonFactorCon(estado.tasa_par, estado.tasa_bcv);
+    }
     function fmtUSD(n) { return '$ ' + (Math.round(n * 100) / 100).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
     function fmtBS(n) { return 'Bs. ' + (Math.round(n * 100) / 100).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
     function redondeoBonito(p) {
@@ -9169,7 +9173,9 @@ function renderHistorial(){
       // Llenar el doc de impresión
       const tbcv = f.tasa_bcv || estado.tasa_bcv;
       const tpar = f.tasa_par || estado.tasa_par;
-      const factor = tbcv > 0 ? (tpar / tbcv) + 0.05 : 1;
+      const factor = (f.factor_bs != null && f.factor_bs > 0)
+        ? parseFloat(f.factor_bs)
+        : colchonFactorCon(tpar, tbcv);
       const cliente = CLIENTES.find(c => c.id === f.cliente_id) || { nombre: f.cliente, rif: '—', tel: '—' };
       document.getElementById('dc-numero').textContent = f.num;
       document.getElementById('dc-fecha').textContent = f.fecha;
