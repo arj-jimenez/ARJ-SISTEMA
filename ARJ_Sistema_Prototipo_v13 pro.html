@@ -3152,6 +3152,8 @@
                 </select>
                 <button class="btn btn-primary btn-sm" onclick="abrirNuevoClienteRapido()" title="Nuevo cliente"
                   style="white-space:nowrap;padding:5px 10px"><i class="ti ti-user-plus"></i></button>
+                <button class="btn btn-secondary btn-sm" onclick="abrirEditarClienteActual()" title="Editar cliente seleccionado"
+                  id="btn-editar-cliente" disabled style="white-space:nowrap;padding:5px 10px"><i class="ti ti-edit"></i></button>
               </div>
             </div>
             <div class="field-row" id="fila-nivel-precio">
@@ -4312,7 +4314,7 @@ GEN-3401    5"
         <button class="btn btn-secondary" onclick="abrirEstadoCuenta()"
           style="background:#25D366;color:#FFF;border-color:#25D366"><i class="ti ti-brand-whatsapp"></i> Enviar por
           WhatsApp</button>
-        <button class="btn btn-primary" onclick="notif('Demo: aquí abriría formulario de edición','warning')"><i
+        <button class="btn btn-primary" onclick="editarDesdeModalCliente()"><i
             class="ti ti-edit"></i> Editar cliente</button>
       </div>
     </div>
@@ -4965,6 +4967,10 @@ GEN-3401    5"
               tipo_pago: f.tipo_pago, tasa_par: parseFloat(f.tasa_par),
               tasa_bcv: parseFloat(f.tasa_bcv),
               factor_bs: f.factor_bs != null ? parseFloat(f.factor_bs) : null,
+              cliente_nombre_snap: f.cliente_nombre_snap || null,
+              cliente_rif_snap: f.cliente_rif_snap || null,
+              cliente_tel_snap: f.cliente_tel_snap || null,
+              cliente_dir_snap: f.cliente_dir_snap || null,
               descuento_manual: parseFloat(f.descuento_manual) || 0,
               motivo_descuento: f.motivo_descuento || '',
               pidio_fiscal: f.pidio_fiscal
@@ -5153,6 +5159,12 @@ GEN-3401    5"
           empresa: estado.empresa,
           cliente_id: clienteSel.id,
           cliente_nombre: clienteSel.nombre,
+          // SNAPSHOT fiscal: datos del cliente TAL COMO ESTABAN al emitir.
+          // Si mañana se edita el cliente, este documento no cambia.
+          cliente_nombre_snap: clienteSel.nombre || '',
+          cliente_rif_snap: clienteSel.rif || '',
+          cliente_tel_snap: clienteSel.tel || '',
+          cliente_dir_snap: clienteSel.direccion || '',
           vendedor: estado.usuario || 'Sistema',
           subtotal_usd: subtotal,
           tasa_par: estado.tasa_par,
@@ -5265,7 +5277,11 @@ GEN-3401    5"
           saldo_pendiente: tipoPago === 'contado' ? 0 : subtotal,
           estado: facturaObj.estado,
           dias: diasCredito || 0, tipo_pago: tipoPago, tasa_par: estado.tasa_par, tasa_bcv: estado.tasa_bcv,
-          factor_bs: facturaObj.factor_bs
+          factor_bs: facturaObj.factor_bs,
+          cliente_nombre_snap: facturaObj.cliente_nombre_snap,
+          cliente_rif_snap: facturaObj.cliente_rif_snap,
+          cliente_tel_snap: facturaObj.cliente_tel_snap,
+          cliente_dir_snap: facturaObj.cliente_dir_snap
         };
         TODAS_FACTURAS.unshift(objFactura);
         VENTAS_RECIENTES.unshift({
@@ -6302,6 +6318,9 @@ GEN-3401    5"
     function seleccionarCliente() {
       const id = parseInt(document.getElementById('cliente-select').value);
       estado.cliente = CLIENTES.find(c => c.id === id) || null;
+      // El botón de editar solo tiene sentido con un cliente seleccionado
+      const btnEd = document.getElementById('btn-editar-cliente');
+      if (btnEd) btnEd.disabled = !estado.cliente;
       if (estado.cliente) {
         // En Venta Directa SIEMPRE precio público; en Distribuidora se usa el nivel del cliente
         if (estado.empresa === 'directa') {
@@ -7099,7 +7118,17 @@ GEN-3401    5"
       </div>`;
         }).join('');
       }
+      _clienteModalAbierto = c;
       document.getElementById('modal-cliente').classList.add('show');
+    }
+
+    // Cliente cuya ficha está abierta (para el botón Editar de esa ficha)
+    let _clienteModalAbierto = null;
+    function editarDesdeModalCliente() {
+      if (!_clienteModalAbierto) { notif('No hay cliente abierto', 'error'); return; }
+      const c = _clienteModalAbierto;
+      cerrarModalCliente();
+      abrirEditarCliente(c);
     }
 
     function cerrarModalCliente() {
@@ -9364,15 +9393,21 @@ function renderHistorial(){
       const factor = (f.factor_bs != null && f.factor_bs > 0)
         ? parseFloat(f.factor_bs)
         : colchonFactorCon(tpar, tbcv);
+      // Datos del cliente CONGELADOS al emitir. Si la factura es vieja y no tiene
+      // snapshot, se cae al cliente actual (comportamiento anterior).
       const cliente = CLIENTES.find(c => c.id === f.cliente_id) || { nombre: f.cliente, rif: '—', tel: '—' };
+      const cliNom = f.cliente_nombre_snap || cliente.nombre || f.cliente;
+      const cliRif = f.cliente_rif_snap || cliente.rif || '—';
+      const cliTel = f.cliente_tel_snap || cliente.tel || '—';
+      const cliDir = f.cliente_dir_snap || cliente.direccion || '—';
       document.getElementById('dc-numero').textContent = f.num;
       document.getElementById('dc-fecha').textContent = f.fecha;
       document.getElementById('dc-fecha2').textContent = f.fecha;
       document.getElementById('dc-vence').textContent = f.vence || '—';
-      document.getElementById('dc-cli-nombre').textContent = cliente.nombre;
-      document.getElementById('dc-cli-rif').textContent = 'RIF: ' + (cliente.rif || '—');
-      document.getElementById('dc-cli-tel').textContent = 'Teléfono: ' + (cliente.tel || '—');
-      document.getElementById('dc-cli-dir').textContent = 'Dirección: ' + (cliente.direccion || '—');
+      document.getElementById('dc-cli-nombre').textContent = cliNom;
+      document.getElementById('dc-cli-rif').textContent = 'RIF: ' + cliRif;
+      document.getElementById('dc-cli-tel').textContent = 'Teléfono: ' + cliTel;
+      document.getElementById('dc-cli-dir').textContent = 'Dirección: ' + cliDir;
       document.getElementById('dc-vendedor').textContent = f.vendedor || '—';
       document.getElementById('dc-empresa-op').textContent = nombreEmpresa(f.empresa);
       document.getElementById('dc-items').innerHTML = items.map((it, i) => `<tr><td>${i + 1}</td><td><strong>${it.cod_alt}</strong></td><td>${it.descripcion}</td><td class="num">${it.cantidad}</td><td class="num">${fmtUSD(it.precio_unitario)}</td><td class="num"><strong>${fmtUSD(it.total_linea)}</strong></td></tr>`).join('');
@@ -9647,7 +9682,17 @@ function renderHistorial(){
     // ═══════════════════════════════════════════════════════════════
     // v12: NUEVO CLIENTE RÁPIDO (desde facturación)
     // ═══════════════════════════════════════════════════════════════
+    // Cliente que se está editando. null = estamos creando uno nuevo.
+    let _clienteEditando = null;
+
     function abrirNuevoClienteRapido() {
+      _clienteEditando = null;
+      const t = document.getElementById('ncr-titulo');
+      if (t) t.innerHTML = '<i class="ti ti-user-plus" style="color:var(--blue)"></i> Nuevo cliente';
+      const b = document.getElementById('ncr-btn-guardar');
+      if (b) b.innerHTML = '<i class="ti ti-check"></i> Crear y seleccionar';
+      const nc = document.getElementById('ncr-canal'); if (nc) nc.disabled = false;
+      const avN = document.getElementById('ncr-aviso-canal'); if (avN) avN.style.display = 'none';
       document.getElementById('modal-nuevo-cliente-rapido').classList.add('show');
       ['ncr-nombre', 'ncr-rif', 'ncr-tel', 'ncr-correo', 'ncr-direccion', 'ncr-contacto', 'ncr-cargo', 'ncr-notas'].forEach(id => {
         const el = document.getElementById(id); if (el) el.value = '';
@@ -9657,6 +9702,57 @@ function renderHistorial(){
       const niv = document.getElementById('ncr-nivel'); if (niv) niv.value = 'Publico';
       ncrToggleTier();
       const n = document.getElementById('ncr-nombre'); if (n) n.focus();
+    }
+
+    // Abrir el MISMO modal en modo edición, con los datos del cliente cargados.
+    function abrirEditarCliente(cli) {
+      if (!cli) { notif('Selecciona un cliente primero', 'error'); return; }
+      _clienteEditando = cli;
+      document.getElementById('modal-nuevo-cliente-rapido').classList.add('show');
+      const t = document.getElementById('ncr-titulo');
+      if (t) t.innerHTML = '<i class="ti ti-edit" style="color:var(--gold)"></i> Editar cliente';
+      const b = document.getElementById('ncr-btn-guardar');
+      if (b) b.innerHTML = '<i class="ti ti-device-floppy"></i> Guardar cambios';
+      const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
+      set('ncr-nombre', cli.nombre);
+      set('ncr-rif', cli.rif);
+      set('ncr-tel', cli.tel);
+      set('ncr-direccion', cli.direccion);
+      set('ncr-contacto', cli.contacto_principal ? cli.contacto_principal.nombre : '');
+      set('ncr-cargo', cli.contacto_principal ? cli.contacto_principal.cargo : '');
+      // El correo se guardó dentro de notas con el prefijo "Correo: "
+      let correoTxt = cli.correo || '';
+      let notasTxt = cli.notas || '';
+      const m = notasTxt.match(/^Correo:\s*(.+)$/m);
+      if (m) { if (!correoTxt) correoTxt = m[1].trim(); notasTxt = notasTxt.replace(/^Correo:\s*.+\n?/m, ''); }
+      set('ncr-correo', correoTxt);
+      set('ncr-notas', notasTxt.trim());
+      const cnl = document.getElementById('ncr-canal');
+      const avisoC = document.getElementById('ncr-aviso-canal');
+      if (cnl) {
+        cnl.value = cli.empresa || 'directa';
+        // El canal define en qué saldo vive su deuda: cambiarlo con saldo abierto
+        // descuadraría CxC. Se bloquea si el cliente ya debe algo.
+        const debe = (cli.saldo_vd || 0) + (cli.saldo_dist || 0);
+        cnl.disabled = debe > 0.009;
+        if (avisoC) {
+          if (cnl.disabled) {
+            avisoC.style.display = 'block';
+            avisoC.innerHTML = '<i class="ti ti-lock"></i> Canal bloqueado: debe ' + fmtUSD(debe) + '. Cóbrale el saldo para poder moverlo.';
+          } else { avisoC.style.display = 'none'; }
+        }
+      }
+      const niv = document.getElementById('ncr-nivel'); if (niv) niv.value = cli.nivel || 'Publico';
+      ncrToggleTier();
+      const n = document.getElementById('ncr-nombre'); if (n) n.focus();
+    }
+
+    // Atajo desde la pantalla de facturación: edita el cliente del dropdown.
+    function abrirEditarClienteActual() {
+      const id = parseInt(document.getElementById('cliente-select')?.value);
+      const cli = CLIENTES.find(c => c.id === id) || estado.cliente;
+      if (!cli) { notif('Selecciona un cliente primero', 'error'); return; }
+      abrirEditarCliente(cli);
     }
     function cerrarNuevoClienteRapido() { document.getElementById('modal-nuevo-cliente-rapido').classList.remove('show'); }
 
@@ -9692,6 +9788,40 @@ function renderHistorial(){
       let notasFinal = '';
       if (correo) notasFinal += 'Correo: ' + correo + '\n';
       if (notasTxt) notasFinal += notasTxt;
+
+      // ── MODO EDICIÓN: actualizar el cliente existente ──
+      if (_clienteEditando) {
+        const c = _clienteEditando;
+        const canalPrevio = c.empresa;
+        // REGLA DE NEGOCIO (validada aquí, no en la UI): con saldo abierto el canal
+        // no se puede mover. El deshabilitado del selector es solo un aviso visual;
+        // esta es la verificación que de verdad manda.
+        const debeTotal = (c.saldo_vd || 0) + (c.saldo_dist || 0);
+        let canalFinal = canal;
+        if (debeTotal > 0.009 && canal !== canalPrevio) {
+          canalFinal = canalPrevio;
+          notif('⚠ El canal NO se cambió: el cliente debe ' + fmtUSD(debeTotal) + '. Cobra el saldo primero.', 'error');
+        }
+        c.nombre = nombre.toUpperCase();
+        c.rif = rif; c.tel = tel; c.direccion = direccion;
+        c.correo = correo; c.notas = notasFinal;
+        c.nivel = nivel; c.empresa = canalFinal;
+        c.contacto_principal = { nombre: contacto || '—', cargo: cargo || '—', tel };
+        // OJO: saldo_vd y saldo_dist NO se tocan. Se calculan de las facturas;
+        // pisarlos aquí borraría lo que el cliente debe.
+        await _sbGuardarCliente(c);
+        llenarClientes();
+        const selE = document.getElementById('cliente-select');
+        if (selE) { selE.value = c.id; seleccionarCliente(); }
+        cerrarNuevoClienteRapido();
+        if (typeof renderClientes === 'function') { try { renderClientes(); } catch (e) { } }
+        const cambioCanal = canalPrevio !== canalFinal ? ' (canal: ' + canalPrevio + ' → ' + canalFinal + ')' : '';
+        logBitacora('cliente', 'Editó cliente: ' + c.nombre + cambioCanal, false);
+        _sbLogBitacora(estado.usuario, estado.empresa, 'cliente', 'Editó cliente: ' + c.nombre + cambioCanal, false);
+        notif('✓ Cliente actualizado: ' + c.nombre, 'success');
+        _clienteEditando = null;
+        return;
+      }
 
       const nuevo = {
         nombre: nombre.toUpperCase(), rif, nivel, tipo: 'contado',
@@ -9762,7 +9892,7 @@ function renderHistorial(){
     <div class="modal-content" style="max-width:560px;text-align:left">
       <div
         style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;border-bottom:1px solid var(--border);padding-bottom:10px">
-        <h2 style="margin:0;font-size:16px"><i class="ti ti-user-plus" style="color:var(--blue)"></i> Nuevo cliente</h2>
+        <h2 style="margin:0;font-size:16px" id="ncr-titulo"><i class="ti ti-user-plus" style="color:var(--blue)"></i> Nuevo cliente</h2>
         <button class="btn btn-secondary btn-sm" onclick="cerrarNuevoClienteRapido()"><i class="ti ti-x"></i></button>
       </div>
       <div style="display:flex;flex-direction:column;gap:10px;max-height:70vh;overflow-y:auto;padding-right:6px">
@@ -9815,6 +9945,7 @@ function renderHistorial(){
               <option value="dist">Distribuidora (revendedor)</option>
               <option value="ambas">Ambas empresas</option>
             </select>
+            <div id="ncr-aviso-canal" style="display:none;margin-top:5px;font-size:11px;color:#8A6D0B;background:#FFF8E1;border:1px solid #E6C860;border-radius:5px;padding:5px 7px"></div>
           </div>
           <div id="ncr-tier-wrap">
             <label style="font-size:12px;font-weight:600;display:block;margin-bottom:3px">Nivel de precio</label>
@@ -9835,7 +9966,7 @@ function renderHistorial(){
         <div
           style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px;border-top:1px solid var(--border);padding-top:10px">
           <button class="btn btn-secondary" onclick="cerrarNuevoClienteRapido()">Cancelar</button>
-          <button class="btn btn-primary" onclick="guardarClienteRapido()"><i class="ti ti-check"></i> Crear y
+          <button class="btn btn-primary" onclick="guardarClienteRapido()" id="ncr-btn-guardar"><i class="ti ti-check"></i> Crear y
             seleccionar</button>
         </div>
       </div>
