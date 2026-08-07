@@ -1187,8 +1187,12 @@
     .pago-row {
       display: flex;
       align-items: center;
-      gap: 8px;
-      margin-bottom: 6px
+      gap: 6px;
+      margin-bottom: 7px;
+      background: #FFF;
+      border: 1px solid #C8E6C9;
+      border-radius: 7px;
+      padding: 5px 6px
     }
 
     .pago-row select,
@@ -1196,10 +1200,34 @@
       background: #FFF;
       border: 1px solid #A5D6A7;
       border-radius: 5px;
-      padding: 4px 7px;
-      font-size: 11.5px;
+      padding: 6px 8px;
+      font-size: 12px;
       color: #222;
       font-family: inherit
+    }
+
+    .pago-row input {
+      text-align: right;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums
+    }
+
+    .pago-row select:focus,
+    .pago-row input:focus {
+      outline: none;
+      border-color: #2E7D32;
+      box-shadow: 0 0 0 2px rgba(46, 125, 50, .15)
+    }
+
+    .pago-moneda {
+      font-size: 10.5px;
+      font-weight: 700;
+      color: #1B5E20;
+      background: #E8F5E9;
+      border-radius: 4px;
+      padding: 3px 6px;
+      min-width: 26px;
+      text-align: center
     }
 
     .pago-row select {
@@ -3938,20 +3966,20 @@ GEN-3401    5"
           <div class="kpi-card green">
             <div class="kpi-icon"><i class="ti ti-trending-up"></i></div>
             <div class="kpi-label">Ventas hoy</div>
-            <div class="kpi-val">$ 0 </div>
-            <div class="kpi-sub" style="color:var(--dgray);font-weight:600">Sin datos aún</div>
+            <div class="kpi-val" id="rep-ventas-hoy">$ 0</div>
+            <div class="kpi-sub" id="rep-ventas-hoy-sub" style="color:var(--dgray);font-weight:600">Sin datos aún</div>
           </div>
           <div class="kpi-card blue">
             <div class="kpi-icon"><i class="ti ti-calendar"></i></div>
             <div class="kpi-label">Ventas este mes</div>
-            <div class="kpi-val">$ 0</div>
-            <div class="kpi-sub" style="color:var(--dgray);font-weight:600">Sin datos aún</div>
+            <div class="kpi-val" id="rep-ventas-mes">$ 0</div>
+            <div class="kpi-sub" id="rep-ventas-mes-sub" style="color:var(--dgray);font-weight:600">Sin datos aún</div>
           </div>
           <div class="kpi-card gold">
             <div class="kpi-icon"><i class="ti ti-percentage"></i></div>
-            <div class="kpi-label">Margen promedio</div>
-            <div class="kpi-val">0%</div>
-            <div class="kpi-sub" style="color:var(--dgray);font-weight:600">Sin datos aún</div>
+            <div class="kpi-label">Margen del catálogo</div>
+            <div class="kpi-val" id="rep-margen">0%</div>
+            <div class="kpi-sub" id="rep-margen-sub" style="color:var(--dgray);font-weight:600">Sin datos aún</div>
           </div>
           <div class="kpi-card red">
             <div class="kpi-icon"><i class="ti ti-package"></i></div>
@@ -4362,13 +4390,8 @@ GEN-3401    5"
             <i class="ti ti-currency-dollar"></i> Precios del producto</div>
           <div class="field-row"><label>Costo FOB USD:</label><input type="number" id="ep-fob" step="0.01"
               oninput="actualizarPreviewPrecio()"></div>
-          <div class="field-row"><label>Fotos (máx 3):</label>
-            <div style="flex:1">
-              <div id="ep-fotos-preview" style="display:flex;gap:8px;margin-bottom:6px"></div>
-              <input type="file" id="ep-foto" accept="image/*" multiple style="width:100%">
-            </div>
-          </div>
-          <div style="display:flex;gap:5px;margin:6px 0 8px;flex-wrap:wrap">
+          <div style="font-size:11px;color:var(--dgray);margin:6px 0 3px">Atajos — calculan el precio desde el FOB:</div>
+          <div style="display:flex;gap:5px;margin:0 0 10px;flex-wrap:wrap">
             <button type="button" class="btn-multi"
               onclick="aplicarMultiplicador(1.0)">×1.00<small>(costo)</small></button>
             <button type="button" class="btn-multi"
@@ -4380,9 +4403,10 @@ GEN-3401    5"
             <button type="button" class="btn-multi"
               onclick="aplicarMultiplicador(3.0)">×3.00<small>+200%</small></button>
           </div>
-          <div class="field-row">
-            <label>Precio manual USD:</label>
-            <input type="number" id="ep-precio-manual" step="0.01" placeholder="Dejar vacío para usar ×2.5 automático"
+          <div class="field-row" style="background:#FFFFFF;border:2px solid var(--gold);border-radius:6px;padding:8px 10px;margin:0">
+            <label style="font-weight:700;color:var(--navy)">Precio de venta USD:</label>
+            <input type="number" id="ep-precio-manual" step="0.01" placeholder="Vacío = usa el ×2.5 automático"
+              style="font-size:16px;font-weight:700;color:var(--navy)"
               oninput="actualizarPreviewPrecio()">
           </div>
           <div id="ep-preview-precio"
@@ -4393,6 +4417,12 @@ GEN-3401    5"
 
         <div class="field-row"><label>Stock Venta Directa:</label><input type="number" id="ep-stock-vd"></div>
         <div class="field-row"><label>Stock Distribuidora:</label><input type="number" id="ep-stock-dist"></div>
+        <div class="field-row" style="margin-top:8px"><label>Fotos (máx 3):</label>
+          <div style="flex:1">
+            <div id="ep-fotos-preview" style="display:flex;gap:8px;margin-bottom:6px"></div>
+            <input type="file" id="ep-foto" accept="image/*" multiple style="width:100%">
+          </div>
+        </div>
       </div>
       <div
         style="background:#FFF8E1;border:1px solid #FFE082;border-radius:6px;padding:8px 10px;font-size:11.5px;color:#5D4037;margin-top:12px">
@@ -6418,8 +6448,13 @@ GEN-3401    5"
       return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9 ]/g, '');
     }
     function highlight(text, query) {
-      if (!query) return text;
-      const re = new RegExp('(' + query.split(/\s+/).filter(w => w.length >= 2).map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')', 'gi');
+      if (!query || !text) return text;
+      // Antes el filtro era length>=2: con una sola letra el array quedaba vacío,
+      // el regex se volvía '()' y coincidía en CADA posición (pintaba letra por letra).
+      const partes = query.split(/\s+/).filter(w => w.length >= 1)
+        .map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+      if (partes.length === 0) return text;
+      const re = new RegExp('(' + partes.join('|') + ')', 'gi');
       return text.replace(re, '<mark>$1</mark>');
     }
 
@@ -6433,6 +6468,21 @@ GEN-3401    5"
       const matches = PRODUCTOS.filter(p => {
         const haystack = normalize(p.cod_alt + ' ' + p.cod_orig + ' ' + (p.cod_barras || '') + ' ' + p.desc + ' ' + p.marca);
         return words.every(w => haystack.includes(w));
+      }).sort((a, b) => {
+        // Relevancia: primero los que EMPIEZAN por lo buscado, luego por
+        // qué tan al principio aparece. Si no, se veían resultados donde la
+        // coincidencia estaba escondida a mitad de la descripción.
+        const rank = p => {
+          const cod = normalize(p.cod_alt), desc = normalize(p.desc), mar = normalize(p.marca);
+          if (cod.startsWith(qNorm)) return 0;
+          if (desc.startsWith(qNorm)) return 1;
+          if (mar.startsWith(qNorm)) return 2;
+          const i = desc.indexOf(qNorm);
+          return i >= 0 ? 3 + i / 1000 : 99;
+        };
+        const ra = rank(a), rb = rank(b);
+        if (ra !== rb) return ra - rb;
+        return normalize(a.desc).localeCompare(normalize(b.desc));
       }).slice(0, 8);
       if (matches.length === 0) {
         cont.innerHTML = '<div class="search-item" style="color:var(--dgray);cursor:default"><span>Sin resultados para "' + q + '"</span></div>';
@@ -6534,12 +6584,16 @@ GEN-3401    5"
     function renderPagos() {
       const cont = document.getElementById('pagos-list');
       cont.innerHTML = estado.pagos.map((p, i) => {
+        // La moneda de cada línea se muestra explícita: antes había que deducirla
+        // del nombre del método y era fácil equivocarse de campo.
+        const mon = p.moneda === 'USD' ? '$' : 'Bs';
         return `<div class="pago-row">
       <select onchange="cambiarMetodoPago(${i},this.value)">
         ${METODOS_PAGO.map(m => `<option ${m === p.metodo ? 'selected' : ''}>${m}</option>`).join('')}
       </select>
-      <input type="text" inputmode="decimal" placeholder="Monto" value="${p.monto || ''}" onchange="cambiarMontoPago(${i},this.value)">
-      <button class="btn btn-secondary btn-sm" style="padding:4px 8px;font-size:10px;white-space:nowrap" onclick="completarPago(${i})" title="Llenar con el monto exacto que falta">Completar</button>
+      <span class="pago-moneda">${mon}</span>
+      <input type="text" inputmode="decimal" placeholder="0,00" value="${p.monto || ''}" onchange="cambiarMontoPago(${i},this.value)">
+      <button class="btn btn-secondary btn-sm" style="padding:5px 9px;font-size:10.5px;white-space:nowrap" onclick="completarPago(${i})" title="Llenar con el monto exacto que falta">Completar</button>
       <button class="del-pago" onclick="quitarPago(${i})" title="Quitar"><i class="ti ti-x"></i></button>
     </div>`;
       }).join('');
@@ -6549,7 +6603,7 @@ GEN-3401    5"
     function cambiarMetodoPago(i, v) {
       estado.pagos[i].metodo = v;
       estado.pagos[i].moneda = v.includes('USD') ? 'USD' : 'Bs';
-      recalcular();
+      renderPagos(); // repinta para que el indicador Bs/$ quede al día
     }
     function parseMontoVE(v) {
       if (typeof v !== 'string') return parseFloat(v) || 0;
@@ -9046,9 +9100,25 @@ GEN-3401    5"
       const manual = parseFloat(document.getElementById('ep-precio-manual').value) || 0;
       const preview = document.getElementById('ep-preview-precio');
       if (!preview) return;
-      if (manual > 0) {
-        const margen = fob > 0 ? (((manual - fob) / manual) * 100).toFixed(1) : 0;
-        preview.innerHTML = `Precio público manual: <strong style="color:var(--navy)">$${manual.toFixed(2)} USD</strong> · Margen: <strong style="color:${margen < 25 ? 'var(--red)' : margen < 35 ? 'var(--gold)' : 'var(--green)'}">${margen}%</strong>`;
+      if (manual > 0 && fob > 0) {
+        // El costo real NO es el FOB: es el FOB puesto en Acarigua (×1.471 landed).
+        // Antes se calculaba contra el FOB pelado y el margen salía inflado.
+        const costoLanded = fob * 1.471;
+        const ganancia = manual - costoLanded;
+        const margen = (ganancia / manual) * 100;
+        const mult = costoLanded > 0 ? manual / costoLanded : 0;
+        const col = margen < 25 ? 'var(--red)' : margen < 35 ? 'var(--gold)' : 'var(--green)';
+        preview.innerHTML =
+          '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:baseline">' +
+          '<span>Precio de venta: <strong style="color:var(--navy);font-size:15px">$' + manual.toFixed(2) + '</strong></span>' +
+          '<span style="color:var(--dgray)">Te cuesta puesto aquí: <strong>$' + costoLanded.toFixed(2) + '</strong> <span style="font-size:10.5px">(FOB $' + fob.toFixed(2) + ' × 1,471)</span></span>' +
+          '</div>' +
+          '<div style="margin-top:5px;padding-top:5px;border-top:1px dashed var(--border);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px">' +
+          '<span>Ganas <strong style="color:' + col + ';font-size:15px">$' + ganancia.toFixed(2) + '</strong> por unidad</span>' +
+          '<span style="color:var(--dgray)">Vendes a <strong>×' + mult.toFixed(1) + '</strong> el costo · Margen <strong style="color:' + col + '">' + margen.toFixed(1) + '%</strong></span>' +
+          '</div>';
+      } else if (manual > 0) {
+        preview.innerHTML = 'Precio manual: <strong style="color:var(--navy)">$' + manual.toFixed(2) + ' USD</strong> <span style="color:var(--dgray)">(falta el FOB para calcular la ganancia)</span>';
       } else if (fob > 0) {
         const sugerido = precioPublico(fob);
         preview.innerHTML = `Precio sugerido automático (×2.5 escalonado): <strong style="color:var(--navy)">$${sugerido.toFixed(2)} USD</strong> <span style="color:var(--dgray)">(sin precio manual)</span>`;
@@ -9165,6 +9235,49 @@ GEN-3401    5"
       const sub = document.getElementById('kpi-stock-sub');
       if (el) el.textContent = criticos;
       if (sub) sub.textContent = `≤ ${umbral} ud (${estado.empresa === 'directa' ? 'Venta Directa' : 'Distribuidora'})`;
+      actualizarKpisReportes();
+    }
+
+    // KPIs de Reportes con datos REALES (antes eran ceros escritos en el HTML).
+    // Se calculan sobre facturas emitidas, excluyendo SIEMPRE las anuladas:
+    // una factura anulada no es una venta.
+    function actualizarKpisReportes() {
+      const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+      const ahora = new Date();
+      const hoy0 = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate());
+      const mes0 = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+
+      const validas = (TODAS_FACTURAS || []).filter(f =>
+        f.empresa === estado.empresa && f.estado !== 'anulada' && f.fecha_raw);
+
+      let totHoy = 0, nHoy = 0, totMes = 0, nMes = 0;
+      validas.forEach(f => {
+        const d = new Date(f.fecha_raw);
+        if (d >= hoy0) { totHoy += f.total || 0; nHoy++; }
+        if (d >= mes0) { totMes += f.total || 0; nMes++; }
+      });
+
+      set('rep-ventas-hoy', fmtUSD(totHoy));
+      set('rep-ventas-hoy-sub', nHoy === 0 ? 'Sin ventas hoy' : nHoy + (nHoy === 1 ? ' factura' : ' facturas'));
+      set('rep-ventas-mes', fmtUSD(totMes));
+      set('rep-ventas-mes-sub', nMes === 0 ? 'Sin ventas este mes' : nMes + (nMes === 1 ? ' factura' : ' facturas'));
+
+      // Margen promedio: se estima con el precio de lista vs el FOB del catálogo,
+      // ponderado por lo vendido este mes. Es aproximado — el margen exacto por
+      // factura exigiría leer factura_items de cada una.
+      let ingreso = 0, costo = 0;
+      (PRODUCTOS || []).forEach(p => {
+        const pr = precioConTier(p.fob, 'Publico', p);
+        if (pr > 0 && p.fob > 0) { ingreso += pr; costo += p.fob * 1.471; }
+      });
+      if (ingreso > 0) {
+        const margen = ((ingreso - costo) / ingreso) * 100;
+        set('rep-margen', margen.toFixed(1) + '%');
+        set('rep-margen-sub', 'Sobre precio público del catálogo');
+      } else {
+        set('rep-margen', '0%');
+        set('rep-margen-sub', 'Sin datos aún');
+      }
     }
 
     function notif(msg, tipo) {
