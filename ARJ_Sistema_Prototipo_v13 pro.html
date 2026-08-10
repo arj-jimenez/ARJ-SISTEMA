@@ -4268,8 +4268,10 @@ GEN-3401    5"
 
         <div class="config-card">
           <h3><i class="ti ti-adjustments" style="color:var(--blue)"></i> Parámetros ARJ</h3>
-          <div class="config-row"><label>Factor landed real</label><input class="val-input" value="1.471" type="number"
-              step="0.001"></div>
+          <div class="config-row"><label>Factor landed por defecto</label><input class="val-input" id="cfg-factor" value="1.471" type="number"
+              step="0.001" min="1" max="5" onchange="actualizarFactorDefault(this.value)"></div>
+          <div class="config-row"><label style="font-size:11px;color:var(--dgray)">Solo aplica a productos NUEVOS</label><label
+              style="font-size:11px;color:var(--dgray)">No toca los ya cargados</label></div>
           <div class="config-row"><label>Costos fijos /mes</label><input class="val-input" value="6148" type="number"
               step="50"></div>
           <div class="config-row"><label>IVA Venezuela</label><input class="val-input" value="0" type="number"
@@ -4587,8 +4589,19 @@ GEN-3401    5"
           <div
             style="font-size:11px;color:var(--dgray);text-transform:uppercase;letter-spacing:.04em;font-weight:500;margin-bottom:8px">
             <i class="ti ti-currency-dollar"></i> Precios del producto</div>
-          <div class="field-row"><label>Costo FOB USD:</label><input type="number" id="ep-fob" step="0.01"
+          <div style="font-size:11px;color:var(--dgray);margin:0 0 5px">Origen de la mercancía:</div>
+          <div style="display:flex;gap:6px;margin:0 0 9px;flex-wrap:wrap">
+            <button type="button" class="btn-multi" id="ep-org-importado"
+              onclick="epSetOrigen('importado')">Importado<small>flete + aduana</small></button>
+            <button type="button" class="btn-multi" id="ep-org-local"
+              onclick="epSetOrigen('local')">Compra local<small>ya está aquí</small></button>
+          </div>
+          <div class="field-row"><label id="ep-lbl-fob">Costo FOB USD:</label><input type="number" id="ep-fob" step="0.01"
               oninput="actualizarPreviewPrecio()"></div>
+          <div class="field-row"><label>Factor landed:</label><input type="number" id="ep-factor" step="0.001" min="1"
+              max="5" oninput="actualizarPreviewPrecio()"></div>
+          <div class="field-row"><label>Proveedor:</label><input type="text" id="ep-proveedor" list="lista-proveedores"
+              placeholder="Ej: PANEGOSSI"><datalist id="lista-proveedores"></datalist></div>
           <div style="font-size:11px;color:var(--dgray);margin:6px 0 3px">Atajos — calculan el precio desde el FOB:</div>
           <div style="display:flex;gap:5px;margin:0 0 10px;flex-wrap:wrap">
             <button type="button" class="btn-multi"
@@ -5137,7 +5150,10 @@ GEN-3401    5"
             stock_vd: p.stock_vd || 0, stock_dist: p.stock_dist || 0,
             marca_modelo: p.marca_modelo || '', sistema: p.sistema || '',
             precio_manual: p.precio_manual ? parseFloat(p.precio_manual) : null,
-            imagen_url: p.imagen_url || ''
+            imagen_url: p.imagen_url || '',
+            origen: p.origen || 'importado',
+            factor_landed: p.factor_landed != null ? parseFloat(p.factor_landed) : FACTOR_LANDED_FALLBACK,
+            proveedor: p.proveedor || ''
           }));
         }
 
@@ -5256,6 +5272,9 @@ GEN-3401    5"
         if (!e5 && cfg) {
           estado.tasa_par = parseFloat(cfg.tasa_par) || estado.tasa_par;
           estado.tasa_bcv = parseFloat(cfg.tasa_bcv) || estado.tasa_bcv;
+          estado.factor_default = parseFloat(cfg.factor_landed_default) || FACTOR_LANDED_FALLBACK;
+          const _inpF = document.getElementById('cfg-factor');
+          if (_inpF) _inpF.value = estado.factor_default;
         }
 
         // Sistemas
@@ -5638,7 +5657,10 @@ GEN-3401    5"
         descripcion: prod.desc, marca: prod.marca || '', fob: prod.fob,
         stock_vd: prod.stock_vd, stock_dist: prod.stock_dist,
         marca_modelo: prod.marca_modelo || '', sistema: prod.sistema || '',
-        precio_manual: prod.precio_manual, activo: true, imagen_url: prod.imagen_url || null
+        precio_manual: prod.precio_manual, activo: true, imagen_url: prod.imagen_url || null,
+        origen: prod.origen || 'importado',
+        factor_landed: prod.factor_landed || FACTOR_LANDED_FALLBACK,
+        proveedor: (prod.proveedor || '').trim() || null
       };
       if (prod.id) {
         // Actualizar existente
@@ -5688,6 +5710,30 @@ GEN-3401    5"
           }
         }
       }
+    }
+
+    // ═══ GUARDAR FACTOR LANDED POR DEFECTO (v13.1) ═══
+    // Solo define con qué factor NACE un producto nuevo. Jamás toca los ya guardados:
+    // cada producto lleva su propio factor_landed en su fila.
+    async function _sbGuardarFactorDefault() {
+      if (!_sb || !_supabaseConectado) return;
+      const { error } = await _sb.from('configuracion').update({
+        factor_landed_default: estado.factor_default
+      }).eq('id', 1);
+      if (error) console.error('[ARJ] Error guardando factor por defecto:', error);
+    }
+
+    function actualizarFactorDefault(v) {
+      const f = parseFloat(v);
+      if (!isFinite(f) || f < 1 || f > 5) {
+        notif('El factor debe estar entre 1 y 5. Se mantiene ' + estado.factor_default, 'error');
+        document.getElementById('cfg-factor').value = estado.factor_default;
+        return;
+      }
+      estado.factor_default = f;
+      logBitacora('inventario', 'Cambió el factor landed por defecto a ×' + f.toFixed(3) + ' (solo productos nuevos)', true);
+      _sbGuardarFactorDefault();
+      notif('Factor por defecto: ×' + f.toFixed(3) + '. Aplica solo a productos nuevos; los ' + PRODUCTOS.length + ' actuales conservan el suyo.', 'success');
     }
 
     // ═══ GUARDAR TASAS EN SUPABASE (v12) ═══
@@ -5841,6 +5887,7 @@ GEN-3401    5"
       pagos: [],
       tasa_par: 215.50,
       tasa_bcv: 195.20,
+      factor_default: 1.471,
       rol: null,
       usuario: null,
     };
@@ -6092,6 +6139,28 @@ GEN-3401    5"
     function precioPublico(fob) {
       let m; if (fob < 2) m = 5; else if (fob < 5) m = 4; else if (fob < 10) m = 3; else m = 2.5;
       return redondeoBonito(fob * m);
+    }
+    // ═══════════════════════════════════════════════════════════════
+    // COSTO LANDED — el costo REAL puesto en Acarigua
+    // Antes estaba quemado en ×1.471 en tres lugares. Ahora cada producto
+    // trae su propio factor: importado ≈1.471 (flete+aduana), local =1.000.
+    // El fallback cubre filas guardadas antes de que existiera la columna.
+    // ═══════════════════════════════════════════════════════════════
+    const FACTOR_LANDED_FALLBACK = 1.471;
+    function factorLandedDe(p) {
+      if (!p) return FACTOR_LANDED_FALLBACK;
+      let f = parseFloat(p.factor_landed);
+      if (!isFinite(f) || f <= 0) {
+        // Un ítem de factura puede no traer el factor (ej. convertido de presupuesto viejo).
+        // Se busca en el catálogo por código antes de caer al fallback.
+        const cat = (typeof PRODUCTOS !== 'undefined' && p.cod_alt)
+          ? PRODUCTOS.find(x => x.cod_alt === p.cod_alt) : null;
+        f = cat ? parseFloat(cat.factor_landed) : NaN;
+      }
+      return (isFinite(f) && f > 0) ? f : FACTOR_LANDED_FALLBACK;
+    }
+    function costoLanded(p) {
+      return (parseFloat(p && p.fob) || 0) * factorLandedDe(p);
     }
     function precioConTier(fob, t, producto) {
       // Si nos pasaron el producto y tiene precio_manual, usarlo
@@ -6723,6 +6792,7 @@ GEN-3401    5"
           cod_alt: p.cod_alt, cod_orig: p.cod_orig, desc: p.desc, marca: p.marca, fob: p.fob,
           stock_vd: p.stock_vd, stock_dist: p.stock_dist,
           precio_manual: p.precio_manual,
+          factor_landed: p.factor_landed, origen: p.origen,
           cant: 1, precio: precio, subtotal: precio // v12: subtotal se recalcula en renderItems
         });
       }
@@ -6745,7 +6815,7 @@ GEN-3401    5"
         const sinStock = it.cant > stock;
         const umbralCritico = estado.empresa === 'directa' ? 10 : 20;
         const stockCls = stock <= umbralCritico ? 'stock-warn' : 'stock-ok';
-        const margen = ((it.precio - it.fob * 1.471) / it.precio * 100).toFixed(1);
+        const margen = ((it.precio - costoLanded(it)) / it.precio * 100).toFixed(1);
         const priceDisabled = estado.rol !== 'gerente' ? 'disabled' : '';
         const alertaFila = sinStock ? `<tr><td colspan="8" style="padding:0"><div class="alert-stock danger" style="margin:0"><i class="ti ti-alert-triangle"></i><div><strong>Stock insuficiente para ${it.desc}.</strong> Aquí quedan ${stock}, ${otraEmp} tiene ${stockOther}. Se permitirá facturar (stock negativo registrado como préstamo).</div></div></td></tr>` : '';
         return `<tr>
@@ -7463,6 +7533,10 @@ GEN-3401    5"
       document.getElementById('ep-marca-modelo').value = p.marca_modelo || '';
       llenarSelectSistemas('ep-sistema', p.sistema || '');
       document.getElementById('ep-fob').value = p.fob;
+      document.getElementById('ep-factor').value = p.factor_landed || FACTOR_LANDED_FALLBACK;
+      document.getElementById('ep-proveedor').value = p.proveedor || '';
+      _llenarProveedores();
+      epSetOrigen(p.origen || 'importado', true);
       document.getElementById('ep-precio-manual').value = p.precio_manual || '';
       document.getElementById('ep-foto').value = '';
       _renderFotosPreview(p);
@@ -7504,7 +7578,24 @@ GEN-3401    5"
       prodEditando.marca_modelo = document.getElementById('ep-marca-modelo').value;
       prodEditando.sistema = document.getElementById('ep-sistema').value;
       prodEditando.fob = parseFloat(document.getElementById('ep-fob').value) || 0;
+      const _org = document.getElementById('ep-org-local').dataset.activo === '1' ? 'local' : 'importado';
+      const _fac = parseFloat(document.getElementById('ep-factor').value);
+      if (!isFinite(_fac) || _fac < 1 || _fac > 5) {
+        notif('El factor landed debe estar entre 1 y 5. Importado ≈1,471 · Local =1,000', 'error');
+        return;
+      }
       const pm = document.getElementById('ep-precio-manual').value.trim();
+      // REGLA DE NEGOCIO: un producto de compra local NO puede usar el multiplicador
+      // escalonado de FOB. Ese escalón asume costo de fábrica; el precio del distribuidor
+      // local ya trae su margen adentro, así que ×2.5 sobre él es sobreprecio automático.
+      // Se valida AQUÍ, en la función que guarda, no con un disabled en pantalla.
+      if (_org === 'local' && !pm) {
+        notif('Producto de compra local: el precio de venta es obligatorio. El ×2.5 automático solo sirve para mercancía importada.', 'error');
+        return;
+      }
+      prodEditando.origen = _org;
+      prodEditando.factor_landed = _fac;
+      prodEditando.proveedor = document.getElementById('ep-proveedor').value.trim().toUpperCase();
       prodEditando.precio_manual = pm ? parseFloat(pm) : null;
       prodEditando.stock_vd = parseInt(document.getElementById('ep-stock-vd').value) || 0;
       prodEditando.stock_dist = parseInt(document.getElementById('ep-stock-dist').value) || 0;
@@ -8677,6 +8768,7 @@ GEN-3401    5"
             cod_alt: p.cod_alt, cod_orig: p.cod_orig, desc: p.desc, marca: p.marca, fob: p.fob,
             stock_vd: p.stock_vd, stock_dist: p.stock_dist,
             precio_manual: p.precio_manual,
+            factor_landed: p.factor_landed, origen: p.origen,
             cant, precio: precioConTier(p.fob, estado.tier, p), subtotal: cant * precioConTier(p.fob, estado.tier, p)
           });
         }
@@ -9286,6 +9378,36 @@ GEN-3401    5"
       renderInventario();
     }
 
+    // ─── ORIGEN DEL PRODUCTO (importado / compra local) ─────────
+    // Cambiar el origen solo PROPONE el factor típico; el número sigue siendo
+    // editable, porque una compra local con IVA no recuperable o flete interno
+    // no tiene factor 1,000 exacto.
+    function epSetOrigen(org, silencioso) {
+      const bImp = document.getElementById('ep-org-importado');
+      const bLoc = document.getElementById('ep-org-local');
+      const lbl = document.getElementById('ep-lbl-fob');
+      const inpF = document.getElementById('ep-factor');
+      if (!bImp || !bLoc) return;
+      const esLocal = org === 'local';
+      bImp.dataset.activo = esLocal ? '0' : '1';
+      bLoc.dataset.activo = esLocal ? '1' : '0';
+      bImp.style.background = esLocal ? '#FFF' : '#FFE082';
+      bLoc.style.background = esLocal ? '#FFE082' : '#FFF';
+      if (lbl) lbl.textContent = esLocal ? 'Costo de compra USD:' : 'Costo FOB USD:';
+      // Al cambiar de origen a mano se propone el factor típico. Al abrir un producto
+      // existente (silencioso) se respeta el factor que ya tiene guardado.
+      if (!silencioso && inpF) inpF.value = esLocal ? '1.000' : (estado.factor_default || FACTOR_LANDED_FALLBACK);
+      actualizarPreviewPrecio();
+    }
+
+    // Lista de proveedores: se arma sola con los que ya existen en el catálogo.
+    function _llenarProveedores() {
+      const dl = document.getElementById('lista-proveedores');
+      if (!dl) return;
+      const vistos = [...new Set((PRODUCTOS || []).map(p => (p.proveedor || '').trim()).filter(Boolean))].sort();
+      dl.innerHTML = vistos.map(v => `<option value="${v}">`).join('');
+    }
+
     // ─── MULTIPLICADORES DE PRECIO ──────────────────────────────
     function aplicarMultiplicador(mult) {
       const fob = parseFloat(document.getElementById('ep-fob').value) || 0;
@@ -9300,10 +9422,15 @@ GEN-3401    5"
       const manual = parseFloat(document.getElementById('ep-precio-manual').value) || 0;
       const preview = document.getElementById('ep-preview-precio');
       if (!preview) return;
+      const _fEl = document.getElementById('ep-factor');
+      const _fRaw = _fEl ? parseFloat(_fEl.value) : NaN;
+      const factor = (isFinite(_fRaw) && _fRaw > 0) ? _fRaw : FACTOR_LANDED_FALLBACK;
+      const esLocal = (document.getElementById('ep-org-local') || {}).dataset
+        ? document.getElementById('ep-org-local').dataset.activo === '1' : false;
       if (manual > 0 && fob > 0) {
-        // El costo real NO es el FOB: es el FOB puesto en Acarigua (×1.471 landed).
-        // Antes se calculaba contra el FOB pelado y el margen salía inflado.
-        const costoLanded = fob * 1.471;
+        // El costo real NO es el FOB: es el FOB puesto en Acarigua (fob × factor del producto).
+        // Antes estaba quemado en ×1.471, lo que inventaba flete en la mercancía comprada aquí.
+        const costoLanded = fob * factor;
         const ganancia = manual - costoLanded;
         const margen = (ganancia / manual) * 100;
         const mult = costoLanded > 0 ? manual / costoLanded : 0;
@@ -9311,7 +9438,7 @@ GEN-3401    5"
         preview.innerHTML =
           '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:baseline">' +
           '<span>Precio de venta: <strong style="color:var(--navy);font-size:15px">$' + manual.toFixed(2) + '</strong></span>' +
-          '<span style="color:var(--dgray)">Te cuesta puesto aquí: <strong>$' + costoLanded.toFixed(2) + '</strong> <span style="font-size:10.5px">(FOB $' + fob.toFixed(2) + ' × 1,471)</span></span>' +
+          '<span style="color:var(--dgray)">Te cuesta puesto aquí: <strong>$' + costoLanded.toFixed(2) + '</strong> <span style="font-size:10.5px">' + (factor === 1 ? '(compra local, sin flete de importación)' : '(costo $' + fob.toFixed(2) + ' × ' + factor.toFixed(3).replace('.', ',') + ')') + '</span></span>' +
           '</div>' +
           '<div style="margin-top:5px;padding-top:5px;border-top:1px dashed var(--border);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px">' +
           '<span>Ganas <strong style="color:' + col + ';font-size:15px">$' + ganancia.toFixed(2) + '</strong> por unidad</span>' +
@@ -9320,8 +9447,12 @@ GEN-3401    5"
       } else if (manual > 0) {
         preview.innerHTML = 'Precio manual: <strong style="color:var(--navy)">$' + manual.toFixed(2) + ' USD</strong> <span style="color:var(--dgray)">(falta el FOB para calcular la ganancia)</span>';
       } else if (fob > 0) {
-        const sugerido = precioPublico(fob);
-        preview.innerHTML = `Precio sugerido automático (×2.5 escalonado): <strong style="color:var(--navy)">$${sugerido.toFixed(2)} USD</strong> <span style="color:var(--dgray)">(sin precio manual)</span>`;
+        if (esLocal) {
+          preview.innerHTML = '<span style="color:var(--red);font-weight:600">Compra local: tienes que poner el precio de venta a mano.</span> <span style="color:var(--dgray)">El escalón automático asume costo de fábrica y aquí te sobrepreciaría.</span>';
+        } else {
+          const sugerido = precioPublico(fob);
+          preview.innerHTML = `Precio sugerido automático (×2.5 escalonado): <strong style="color:var(--navy)">$${sugerido.toFixed(2)} USD</strong> <span style="color:var(--dgray)">(sin precio manual)</span>`;
+        }
       } else {
         preview.innerHTML = 'Precio público sugerido: <strong style="color:var(--navy)">— USD</strong>';
       }
@@ -9390,7 +9521,7 @@ GEN-3401    5"
     // ─── ABRIR NUEVO PRODUCTO (solo gerente) ────────────────────
     function abrirNuevoProducto() {
       if (estado.rol !== 'gerente') { notif('Solo el gerente puede crear productos', 'error'); return; }
-      prodEditando = { cod_alt: '', cod_orig: '', cod_barras: '', desc: '', marca: '', fob: 0, stock_vd: 0, stock_dist: 0, marca_modelo: '', sistema: '', precio_manual: null, _nuevo: true };
+      prodEditando = { cod_alt: '', cod_orig: '', cod_barras: '', desc: '', marca: '', fob: 0, stock_vd: 0, stock_dist: 0, marca_modelo: '', sistema: '', precio_manual: null, origen: 'importado', factor_landed: (estado.factor_default || FACTOR_LANDED_FALLBACK), proveedor: '', _nuevo: true };
       document.getElementById('ep-cod-alt').value = '';
       document.getElementById('ep-cod-alt').readOnly = false;
       document.getElementById('ep-cod-alt').style.background = '#FFF';
@@ -9402,6 +9533,10 @@ GEN-3401    5"
       document.getElementById('ep-marca-modelo').value = '';
       llenarSelectSistemas('ep-sistema', '');
       document.getElementById('ep-fob').value = '0';
+      document.getElementById('ep-factor').value = (estado.factor_default || FACTOR_LANDED_FALLBACK);
+      document.getElementById('ep-proveedor').value = '';
+      _llenarProveedores();
+      epSetOrigen('importado', true);
       document.getElementById('ep-precio-manual').value = '';
       document.getElementById('ep-stock-vd').value = '0';
       document.getElementById('ep-stock-dist').value = '0';
@@ -9468,7 +9603,7 @@ GEN-3401    5"
       let ingreso = 0, costo = 0;
       (PRODUCTOS || []).forEach(p => {
         const pr = precioConTier(p.fob, 'Publico', p);
-        if (pr > 0 && p.fob > 0) { ingreso += pr; costo += p.fob * 1.471; }
+        if (pr > 0 && p.fob > 0) { ingreso += pr; costo += costoLanded(p); }
       });
       if (ingreso > 0) {
         const margen = ((ingreso - costo) / ingreso) * 100;
