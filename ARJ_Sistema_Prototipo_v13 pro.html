@@ -108,6 +108,29 @@
       color: var(--text)
     }
 
+    .mov-chip {
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--dgray);
+      border-radius: 6px;
+      padding: 6px 11px;
+      font-size: 12px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all .12s
+    }
+
+    .mov-chip:hover {
+      border-color: var(--navy)
+    }
+
+    .mov-chip.on {
+      background: var(--navy);
+      color: #FFF;
+      border-color: var(--navy);
+      font-weight: 600
+    }
+
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
       background: var(--bg);
@@ -3132,6 +3155,7 @@
         Inventario</div>
       <div class="nav-item" data-page="cobrar" onclick="navTo('cobrar')"><i class="ti ti-cash"></i> Cuentas por cobrar
       </div>
+      <div class="nav-item" data-page="movimientos" data-restrict="gerente" onclick="navTo('movimientos')"><i class="ti ti-arrows-exchange"></i> Movimientos</div>
       <div class="nav-item" data-page="clientes" onclick="navTo('clientes')"><i class="ti ti-users"></i> Clientes</div>
       <div class="nav-item" data-page="dashboard" data-restrict="gerente" onclick="navTo('dashboard')"><i
           class="ti ti-chart-bar"></i> Reportes</div>
@@ -3905,6 +3929,67 @@ GEN-3401    5"
     </div>
 
     <!-- ───── CLIENTES ───── -->
+    <!-- ───── MOVIMIENTOS (Entradas y Salidas) ───── -->
+    <div class="page" id="page-movimientos">
+      <h1 class="page-title"><i class="ti ti-arrows-exchange"></i> Entradas y Salidas</h1>
+      <p class="page-sub">Empresa: <strong id="emp-mov">Venta Directa</strong></p>
+
+      <div class="help-box">
+        <i class="ti ti-info-circle"></i>
+        <div><strong>Esto es plata, no ventas.</strong> Las entradas por venta aparecen solas cuando el cliente
+          <em>paga</em>. Una factura a crédito no mueve la caja hasta que se cobre. Las salidas se registran a mano.</div>
+      </div>
+
+      <div class="kpi-grid" style="grid-template-columns:repeat(3,1fr)">
+        <div class="kpi-card green">
+          <div class="kpi-icon"><i class="ti ti-arrow-down-left"></i></div>
+          <div class="kpi-label">Entró</div>
+          <div class="kpi-val" style="color:var(--green)" id="kpi-mov-entro">$ 0</div>
+          <div class="kpi-sub" id="kpi-mov-entro-sub">0 movimientos</div>
+        </div>
+        <div class="kpi-card red">
+          <div class="kpi-icon"><i class="ti ti-arrow-up-right"></i></div>
+          <div class="kpi-label">Salió</div>
+          <div class="kpi-val" style="color:var(--red)" id="kpi-mov-salio">$ 0</div>
+          <div class="kpi-sub" id="kpi-mov-salio-sub">0 movimientos</div>
+        </div>
+        <div class="kpi-card blue">
+          <div class="kpi-icon"><i class="ti ti-scale"></i></div>
+          <div class="kpi-label">Saldo del período</div>
+          <div class="kpi-val" id="kpi-mov-saldo">$ 0</div>
+          <div class="kpi-sub" id="kpi-mov-saldo-sub">entradas − salidas</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:14px">
+        <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+          <div>
+            <label style="display:block;font-size:11px;color:var(--dgray);margin-bottom:3px">Mes</label>
+            <input type="month" id="mov-mes" onchange="renderMovimientos()"
+              style="border:1px solid var(--border);border-radius:6px;padding:7px 9px;font-size:13px;font-family:inherit">
+          </div>
+          <div>
+            <label style="display:block;font-size:11px;color:var(--dgray);margin-bottom:3px">Ver</label>
+            <select id="mov-filtro-emp" onchange="renderMovimientos()"
+              style="border:1px solid var(--border);border-radius:6px;padding:7px 9px;font-size:13px;font-family:inherit">
+              <option value="activa">Empresa activa + compartidos</option>
+              <option value="directa">Solo Venta Directa</option>
+              <option value="dist">Solo Distribuidora</option>
+              <option value="ambas">Solo compartidos</option>
+              <option value="todas">Todas</option>
+            </select>
+          </div>
+          <div style="flex:1"></div>
+          <button class="btn btn-secondary" onclick="abrirModalMovimiento('entrada')"><i
+              class="ti ti-arrow-down-left"></i> Entrada</button>
+          <button class="btn btn-red" onclick="abrirModalMovimiento('salida')"><i class="ti ti-arrow-up-right"></i>
+            Registrar salida</button>
+        </div>
+      </div>
+
+      <div id="mov-list"></div>
+    </div>
+
     <div class="page" id="page-clientes">
       <h1 class="page-title"><i class="ti ti-users"></i> Clientes</h1>
       <p class="page-sub">Listado de clientes registrados · Nivel asignado · Saldo deudor</p>
@@ -4277,6 +4362,120 @@ GEN-3401    5"
   <div class="notif" id="notif"><i class="ti ti-circle-check"></i> <span id="notif-text">Mensaje</span></div>
 
   <!-- MODAL FACTURA EMITIDA -->
+  <!-- MODAL REGISTRAR MOVIMIENTO -->
+  <div class="modal" id="modal-movimiento">
+    <div class="modal-content" style="max-width:520px;text-align:left">
+      <div
+        style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;border-bottom:1px solid var(--gray);padding-bottom:12px">
+        <h2 style="margin:0;text-align:left" id="mov-modal-tit"><i class="ti ti-arrow-up-right"></i> Registrar salida
+        </h2>
+        <button class="btn btn-secondary btn-sm" onclick="cerrarModalMovimiento()"><i class="ti ti-x"></i></button>
+      </div>
+
+      <label style="display:block;font-size:12px;color:var(--dgray);margin-bottom:5px">¿Cuánto?</label>
+      <div style="display:flex;gap:8px;margin-bottom:4px">
+        <div
+          style="flex:1;display:flex;align-items:center;border:1px solid var(--border);border-radius:6px;padding:0 10px;background:var(--input-bg)">
+          <span id="mov-simbolo" style="font-size:15px;color:var(--dgray);margin-right:6px">Bs</span>
+          <input type="number" id="mov-monto" step="0.01" min="0" placeholder="0,00" oninput="movCalcular()"
+            style="flex:1;border:none;outline:none;background:transparent;font-size:20px;font-weight:700;padding:9px 0;color:var(--text);font-family:inherit">
+        </div>
+        <div style="display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden">
+          <button type="button" id="mov-mon-bs" onclick="movSetMoneda('Bs')"
+            style="border:none;padding:0 14px;font-size:14px;font-weight:600;cursor:pointer;background:var(--navy);color:#FFF;font-family:inherit">Bs</button>
+          <button type="button" id="mov-mon-usd" onclick="movSetMoneda('USD')"
+            style="border:none;padding:0 14px;font-size:14px;font-weight:600;cursor:pointer;background:transparent;color:var(--dgray);font-family:inherit">$</button>
+        </div>
+      </div>
+      <div id="mov-conversion" style="font-size:11.5px;color:var(--dgray);margin-bottom:14px">&nbsp;</div>
+
+      <label style="display:block;font-size:12px;color:var(--dgray);margin-bottom:5px">¿En qué?</label>
+      <div id="mov-cats" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:4px"></div>
+      <div id="mov-cat-hint" style="font-size:11.5px;color:var(--dgray);margin-bottom:14px">&nbsp;</div>
+
+      <label style="display:block;font-size:12px;color:var(--dgray);margin-bottom:5px">¿A quién o para qué?</label>
+      <input type="text" id="mov-concepto" placeholder="Ej: Cabillas y cemento — techo del galpón"
+        style="width:100%;border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:13px;background:var(--input-bg);color:var(--text);font-family:inherit;margin-bottom:14px">
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+        <div>
+          <label style="display:block;font-size:12px;color:var(--dgray);margin-bottom:5px">¿Cómo pagó?</label>
+          <select id="mov-metodo"
+            style="width:100%;border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:13px;background:var(--input-bg);color:var(--text);font-family:inherit">
+            <option>Efectivo Bs</option>
+            <option>Efectivo USD</option>
+            <option>Pago móvil</option>
+            <option>Transferencia Bs</option>
+            <option>Transferencia USD</option>
+            <option>Zelle</option>
+            <option>Otro</option>
+          </select>
+        </div>
+        <div>
+          <label style="display:block;font-size:12px;color:var(--dgray);margin-bottom:5px">Fecha</label>
+          <input type="date" id="mov-fecha"
+            style="width:100%;border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:13px;background:var(--input-bg);color:var(--text);font-family:inherit">
+        </div>
+      </div>
+
+      <label style="display:block;font-size:12px;color:var(--dgray);margin-bottom:5px">¿De cuál empresa?</label>
+      <div style="display:flex;gap:5px;margin-bottom:4px">
+        <button type="button" id="mov-emp-directa" onclick="movSetEmpresa('directa')" class="mov-chip">Venta
+          Directa</button>
+        <button type="button" id="mov-emp-dist" onclick="movSetEmpresa('dist')" class="mov-chip">Distribuidora</button>
+        <button type="button" id="mov-emp-ambas" onclick="movSetEmpresa('ambas')" class="mov-chip">Ambas</button>
+      </div>
+      <div id="mov-emp-hint" style="font-size:11.5px;color:var(--dgray);margin-bottom:14px">&nbsp;</div>
+
+      <div
+        style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px;padding-top:12px;border-top:1px solid var(--gray)">
+        <button class="btn btn-secondary" onclick="cerrarModalMovimiento()">Cancelar</button>
+        <button class="btn btn-primary" id="mov-btn-guardar" onclick="guardarMovimiento()"><i
+            class="ti ti-device-floppy"></i> Guardar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL ADVERTENCIA EMPRESA DISTINTA -->
+  <div class="modal" id="modal-mov-empresa">
+    <div class="modal-content" style="max-width:420px;text-align:left">
+      <h2 style="margin:0 0 12px;text-align:left;color:var(--gold);font-size:17px"><i class="ti ti-alert-triangle"></i>
+        <span id="mov-warn-tit">Estás en Venta Directa</span>
+      </h2>
+      <div
+        style="background:#FFF8E1;border:1px solid #E6C860;border-left:4px solid var(--gold);border-radius:6px;padding:10px 12px;font-size:13px;color:#5D4037;margin-bottom:14px">
+        <div style="margin-bottom:6px">Este movimiento se guardará en <strong id="mov-warn-dest">Distribuidora</strong>.
+        </div>
+        <div>¿Sirve a las dos? Elegí <strong>Ambas</strong>.</div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-secondary" onclick="movCancelarEmpresa()">Volver</button>
+        <button class="btn btn-primary" onclick="movConfirmarEmpresa()" id="mov-warn-ok">Sí, es de
+          Distribuidora</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL ANULAR MOVIMIENTO -->
+  <div class="modal" id="modal-mov-anular">
+    <div class="modal-content" style="max-width:460px;text-align:left">
+      <h2 style="margin:0 0 12px;text-align:left;color:var(--red);font-size:17px"><i class="ti ti-file-x"></i> Anular
+        movimiento</h2>
+      <p style="font-size:12.5px;color:var(--dgray);margin:0 0 12px" id="mov-anular-info"></p>
+      <div
+        style="background:#FCEBEB;border:1px solid #F09595;border-left:4px solid var(--red);border-radius:6px;padding:10px 12px;font-size:12.5px;color:var(--red);margin-bottom:14px">
+        El movimiento no se borra: queda tachado en la lista con el motivo, y deja de sumar en los totales.
+      </div>
+      <label style="display:block;font-size:12px;color:var(--dgray);margin-bottom:5px">Motivo (obligatorio)</label>
+      <textarea id="mov-anular-motivo" placeholder="Ej: monto equivocado, se registró dos veces..."
+        style="width:100%;min-height:70px;border:1px solid var(--border);border-radius:6px;padding:8px 10px;font-size:13px;background:var(--input-bg);color:var(--text);font-family:inherit;resize:vertical"></textarea>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+        <button class="btn btn-secondary" onclick="cerrarMovAnular()">Cancelar</button>
+        <button class="btn btn-red" onclick="confirmarMovAnular()">Anular</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal" id="modal-factura">
     <div class="modal-content">
       <div class="modal-icon" style="background:#FFF8E1;color:var(--gold)"><i class="ti ti-alert-triangle"></i></div>
@@ -6148,7 +6347,7 @@ GEN-3401    5"
         hdr.className = 'header empresa-dist';
         empName.textContent = 'Distribuidora';
       }
-      document.querySelectorAll('#empresa-fact,#emp-inv,#emp-cobrar').forEach(el => el.textContent = empName.textContent);
+      document.querySelectorAll('#empresa-fact,#emp-inv,#emp-cobrar,#emp-mov').forEach(el => el.textContent = empName.textContent);
       // Ocultar/mostrar switcher según permisos
       const sw = document.getElementById('empresa-switch');
       if (estado.empresa_usuario === 'ambas') {
@@ -6241,6 +6440,7 @@ GEN-3401    5"
       if (page === 'historial') renderHistorial();
       if (page === 'bitacora') renderBitacora();
       if (page === 'turnos') renderTurnos();
+      if (page === 'movimientos') { movInitMes(); renderMovimientos(); }
       if (page === 'alertas') renderAlertas();
       if (page === 'exportar') renderVentasPendientes();
       if (page === 'config') { renderListasPrecios(); renderUsuariosConfig(); renderInfoBackup(); }
@@ -9277,6 +9477,432 @@ GEN-3401    5"
       } else {
         set('rep-margen', '0%');
         set('rep-margen-sub', 'Sin datos aún');
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // MÓDULO MOVIMIENTOS — Entradas y Salidas de caja (v14)
+    //
+    // Regla central: esto mide PLATA, no ventas.
+    //   · Las entradas por venta NO se teclean: se leen de `pagos`.
+    //     Una factura de contado inserta su pago al emitirse; una factura
+    //     a crédito no mueve la caja hasta que el cliente abone.
+    //   · Las salidas y las entradas que no son venta (aporte de socio,
+    //     préstamo, devolución de proveedor) se registran a mano aquí.
+    //   · Nada se borra. Se anula con motivo (estado='anulado').
+    //
+    // `clasificacion` se guarda congelada en cada fila, no se recalcula:
+    //   opex       → gasto del mes, entra al punto de equilibrio
+    //   inventario → costo de mercancía / flete / aduana. YA está dentro
+    //                del factor ×1,471. NUNCA sumarlo como gasto operativo
+    //   capex      → activo que se deprecia (galpón, equipos)
+    //   no_gasto   → movimiento de capital (aporte, préstamo, retiro)
+    // ═══════════════════════════════════════════════════════════════
+
+    const MOV_CAT_SALIDA = [
+      { id: 'sueldos', label: 'Sueldos', clas: 'opex', hint: 'Gasto del mes' },
+      { id: 'mercancia', label: 'Mercancía', clas: 'inventario', hint: 'Costo de mercancía — no es gasto del mes' },
+      { id: 'flete_aduana', label: 'Flete y aduana', clas: 'inventario', hint: 'Ya va dentro del costo landed (×1,471)' },
+      { id: 'construccion', label: 'Construcción y galpón', clas: 'capex', hint: 'Mejora del local — no es gasto del mes' },
+      { id: 'equipos', label: 'Equipos', clas: 'capex', hint: 'Activo que se deprecia — no es gasto del mes' },
+      { id: 'servicios', label: 'Servicios', clas: 'opex', hint: 'Gasto del mes' },
+      { id: 'contador', label: 'Contador', clas: 'opex', hint: 'Gasto del mes' },
+      { id: 'bancos', label: 'Bancos', clas: 'opex', hint: 'Comisiones bancarias — gasto del mes' },
+      { id: 'retiro', label: 'Retiro del dueño', clas: 'no_gasto', hint: 'Movimiento de capital — no es gasto' },
+      { id: 'otros', label: 'Otros', clas: 'opex', hint: 'Gasto del mes' }
+    ];
+
+    const MOV_CAT_ENTRADA = [
+      { id: 'aporte', label: 'Aporte de socio', clas: 'no_gasto', hint: 'Capital que entra — no es venta' },
+      { id: 'prestamo', label: 'Préstamo', clas: 'no_gasto', hint: 'Pasivo — hay que devolverlo' },
+      { id: 'dev_proveedor', label: 'Devolución de proveedor', clas: 'inventario', hint: 'Reduce el costo de la mercancía' },
+      { id: 'venta_activo', label: 'Venta de un activo', clas: 'no_gasto', hint: 'Sale un bien, entra plata' },
+      { id: 'otros_ing', label: 'Otros ingresos', clas: 'opex', hint: 'Ingreso que no viene de una factura' }
+    ];
+
+    let MOVIMIENTOS = [];
+    let _movTipo = 'salida';
+    let _movMoneda = 'Bs';
+    let _movCat = null;
+    let _movEmpresa = 'directa';
+    let _movEmpresaPend = null;
+    let _movAnularId = null;
+
+    function movCatalogo() { return _movTipo === 'salida' ? MOV_CAT_SALIDA : MOV_CAT_ENTRADA; }
+
+    function movInitMes() {
+      const el = document.getElementById('mov-mes');
+      if (el && !el.value) {
+        const h = new Date();
+        el.value = h.getFullYear() + '-' + String(h.getMonth() + 1).padStart(2, '0');
+      }
+    }
+
+    function movRango() {
+      const v = (document.getElementById('mov-mes') || {}).value;
+      const h = new Date();
+      let y = h.getFullYear(), m = h.getMonth();
+      if (v && /^\d{4}-\d{2}$/.test(v)) { y = parseInt(v.slice(0, 4), 10); m = parseInt(v.slice(5, 7), 10) - 1; }
+      return {
+        desde: new Date(y, m, 1).toISOString(),
+        hasta: new Date(y, m + 1, 1).toISOString()
+      };
+    }
+
+    // ── Carga: movimientos manuales + pagos (entradas automáticas) ──
+    async function renderMovimientos() {
+      const cont = document.getElementById('mov-list');
+      if (!cont) return;
+
+      if (!_sb || !_supabaseConectado) {
+        cont.innerHTML = '<div class="card" style="text-align:center;color:var(--dgray);padding:24px">Sin conexión a la base de datos. Los movimientos no se pueden consultar sin internet.</div>';
+        ['kpi-mov-entro', 'kpi-mov-salio', 'kpi-mov-saldo'].forEach(id => { const e = document.getElementById(id); if (e) e.textContent = '—'; });
+        return;
+      }
+
+      cont.innerHTML = '<div class="card" style="text-align:center;color:var(--dgray);padding:24px">Cargando…</div>';
+      const { desde, hasta } = movRango();
+      const filtro = (document.getElementById('mov-filtro-emp') || {}).value || 'activa';
+      const empresaConsultada = estado.empresa;
+
+      try {
+        // 1) Movimientos manuales
+        const { data: movs, error: e1 } = await _sb.from('movimientos_caja')
+          .select('*').gte('fecha', desde).lt('fecha', hasta).order('fecha', { ascending: false });
+        if (e1) throw e1;
+
+        // 2) Pagos del período (entradas automáticas)
+        const { data: pagos, error: e2 } = await _sb.from('pagos')
+          .select('id, factura_id, monto_usd, monto_bs, tasa_usada, metodo, referencia, fecha')
+          .gte('fecha', desde).lt('fecha', hasta);
+        if (e2) throw e2;
+
+        // 3) Empresa y estado de las facturas de esos pagos
+        let mapaFact = {};
+        const ids = [...new Set((pagos || []).map(p => p.factura_id).filter(Boolean))];
+        if (ids.length) {
+          const { data: facts, error: e3 } = await _sb.from('facturas')
+            .select('id, numero, empresa, estado, cliente_nombre_snap, cliente_nombre').in('id', ids);
+          if (e3) throw e3;
+          (facts || []).forEach(f => { mapaFact[f.id] = f; });
+        }
+
+        // Si el usuario cambió de empresa mientras la consulta viajaba, no pisamos nada
+        if (estado.empresa !== empresaConsultada) return;
+
+        // 4) Unificar en una sola lista
+        const lista = [];
+
+        (movs || []).forEach(m => lista.push({
+          origen: 'manual', id: m.id, fecha: m.fecha, tipo: m.tipo, empresa: m.empresa,
+          categoria: m.categoria, clasificacion: m.clasificacion, concepto: m.concepto,
+          monto_usd: parseFloat(m.monto_usd) || 0, monto_bs: parseFloat(m.monto_bs) || 0,
+          metodo: m.metodo || '', anulado: m.estado === 'anulado', motivo: m.anulado_motivo || '',
+          afecta_caja: m.afecta_caja !== false,
+          tasa_bcv_ref: parseFloat(m.tasa_bcv_ref) || 0
+        }));
+
+        (pagos || []).forEach(p => {
+          const f = mapaFact[p.factura_id];
+          if (!f) return;
+          if (f.estado === 'anulada') return;   // la anulación ya generó su pago negativo
+          const usd = parseFloat(p.monto_usd) || 0;
+          const cliente = f.cliente_nombre_snap || f.cliente_nombre || 'Cliente';
+          lista.push({
+            origen: 'auto', id: 'p' + p.id, fecha: p.fecha, tipo: usd >= 0 ? 'entrada' : 'salida',
+            empresa: f.empresa, categoria: usd >= 0 ? 'Cobro de factura' : 'Devolución por anulación',
+            clasificacion: 'venta',
+            concepto: (f.numero || '') + ' · ' + cliente + (p.referencia ? ' · ' + p.referencia : ''),
+            monto_usd: Math.abs(usd), monto_bs: Math.abs(parseFloat(p.monto_bs) || 0),
+            metodo: p.metodo || '', anulado: false, motivo: '', afecta_caja: true
+          });
+        });
+
+        // 5) Filtro por empresa
+        const pasa = (m) => {
+          if (filtro === 'todas') return true;
+          if (filtro === 'activa') return m.empresa === estado.empresa || m.empresa === 'ambas';
+          return m.empresa === filtro;
+        };
+        MOVIMIENTOS = lista.filter(pasa).sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+
+        movPintar();
+
+      } catch (err) {
+        console.error('[ARJ] Error cargando movimientos:', err);
+        cont.innerHTML = '<div class="card" style="text-align:center;color:var(--red);padding:24px">No se pudieron cargar los movimientos.</div>';
+      }
+    }
+
+    function movPintar() {
+      const cont = document.getElementById('mov-list');
+      const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+
+      // KPIs — solo lo que afecta caja y no está anulado
+      let entro = 0, salio = 0, nE = 0, nS = 0;
+      MOVIMIENTOS.forEach(m => {
+        if (m.anulado || !m.afecta_caja) return;
+        if (m.tipo === 'entrada') { entro += m.monto_usd; nE++; } else { salio += m.monto_usd; nS++; }
+      });
+      const saldo = entro - salio;
+      set('kpi-mov-entro', fmtUSD(entro));
+      set('kpi-mov-entro-sub', nE + (nE === 1 ? ' movimiento' : ' movimientos'));
+      set('kpi-mov-salio', fmtUSD(salio));
+      set('kpi-mov-salio-sub', nS + (nS === 1 ? ' movimiento' : ' movimientos'));
+      set('kpi-mov-saldo', fmtUSD(saldo));
+      const elSaldo = document.getElementById('kpi-mov-saldo');
+      if (elSaldo) elSaldo.style.color = saldo < 0 ? 'var(--red)' : 'var(--navy)';
+
+      if (MOVIMIENTOS.length === 0) {
+        cont.innerHTML = '<div class="card" style="text-align:center;color:var(--dgray);padding:28px"><i class="ti ti-inbox" style="font-size:28px;display:block;margin-bottom:8px;opacity:.5"></i>Sin movimientos en este período.</div>';
+        return;
+      }
+
+      const badgeEmp = (e) => {
+        if (e === 'ambas') return '<span style="background:var(--lgold);color:#854F0B;padding:1px 6px;border-radius:8px;font-size:9.5px;font-weight:600;margin-left:5px">AMBAS</span>';
+        if (e === 'directa') return '<span style="background:var(--lblue);color:var(--blue);padding:1px 5px;border-radius:6px;font-size:9.5px;font-weight:600;margin-left:5px">VD</span>';
+        return '<span style="background:var(--lgreen);color:var(--green);padding:1px 5px;border-radius:6px;font-size:9.5px;font-weight:600;margin-left:5px">DT</span>';
+      };
+
+      cont.innerHTML = '<div class="card" style="padding:0;overflow:hidden">' + MOVIMIENTOS.map(m => {
+        const esEnt = m.tipo === 'entrada';
+        const color = m.anulado ? 'var(--dgray)' : (esEnt ? 'var(--green)' : 'var(--red)');
+        const tach = m.anulado ? 'text-decoration:line-through;opacity:.6' : '';
+        const fecha = new Date(m.fecha).toLocaleDateString('es-VE', { day: '2-digit', month: 'short' });
+        const auto = m.origen === 'auto'
+          ? '<span style="background:var(--sky);color:var(--blue);padding:1px 6px;border-radius:8px;font-size:9.5px;font-weight:600;margin-left:5px">AUTO</span>' : '';
+        const btnAnular = (m.origen === 'manual' && !m.anulado)
+          ? `<button class="btn btn-secondary btn-sm" style="padding:3px 7px;font-size:10px;color:var(--red);margin-left:8px" onclick="abrirMovAnular(${m.id})" title="Anular"><i class="ti ti-file-x"></i></button>` : '';
+        return `<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--gray)">
+          <div style="flex:1;min-width:0;${tach}">
+            <div style="font-size:12.5px;font-weight:600;color:var(--text)">${m.concepto}${badgeEmp(m.empresa)}${auto}</div>
+            <div style="font-size:10.5px;color:var(--dgray)">${fecha} · ${m.categoria}${m.metodo ? ' · ' + m.metodo : ''}${m.anulado ? ' · ANULADO: ' + m.motivo : ''}</div>
+          </div>
+          <div style="text-align:right;${tach}">
+            <div style="font-size:13.5px;font-weight:700;color:${color};white-space:nowrap">${esEnt ? '+' : '−'}${fmtUSD(m.monto_usd)}</div>
+            <div style="font-size:10px;color:var(--dgray);white-space:nowrap">${fmtBS(m.monto_bs)}${m.tasa_bcv_ref > 0 ? ' · ' + fmtUSD(m.monto_bs / m.tasa_bcv_ref) + ' BCV' : ''}</div>
+          </div>
+          ${btnAnular}
+        </div>`;
+      }).join('') + '</div>';
+    }
+
+    // ── Modal de registro ──
+    function abrirModalMovimiento(tipo) {
+      if (estado.rol !== 'gerente') { notif('Solo el gerente registra movimientos de caja', 'error'); return; }
+      _movTipo = tipo;
+      _movMoneda = 'Bs';
+      _movCat = null;
+      _movEmpresa = estado.empresa;
+
+      document.getElementById('mov-modal-tit').innerHTML = tipo === 'salida'
+        ? '<i class="ti ti-arrow-up-right"></i> Registrar salida'
+        : '<i class="ti ti-arrow-down-left"></i> Registrar entrada';
+
+      document.getElementById('mov-monto').value = '';
+      document.getElementById('mov-concepto').value = '';
+      document.getElementById('mov-fecha').value = new Date().toISOString().slice(0, 10);
+      document.getElementById('mov-cat-hint').innerHTML = '&nbsp;';
+      document.getElementById('mov-conversion').innerHTML = '&nbsp;';
+
+      if (tipo === 'entrada') {
+        document.getElementById('mov-cat-hint').innerHTML =
+          '<i class="ti ti-info-circle"></i> Los cobros de factura entran solos. Esto es para lo que <strong>no</strong> es venta.';
+      }
+
+      // Fichas de categoría
+      document.getElementById('mov-cats').innerHTML = movCatalogo().map(c =>
+        `<button type="button" class="mov-chip" id="mov-cat-${c.id}" onclick="movSetCategoria('${c.id}')">${c.label}</button>`
+      ).join('');
+
+      movSetMoneda('Bs');
+      movPintarEmpresa();
+      document.getElementById('modal-movimiento').classList.add('show');
+      setTimeout(() => document.getElementById('mov-monto').focus(), 80);
+    }
+
+    function cerrarModalMovimiento() {
+      document.getElementById('modal-movimiento').classList.remove('show');
+    }
+
+    function movSetMoneda(m) {
+      _movMoneda = m;
+      document.getElementById('mov-simbolo').textContent = m === 'Bs' ? 'Bs' : '$';
+      const on = { background: 'var(--navy)', color: '#FFF' };
+      const off = { background: 'transparent', color: 'var(--dgray)' };
+      const bs = document.getElementById('mov-mon-bs'), usd = document.getElementById('mov-mon-usd');
+      Object.assign(bs.style, m === 'Bs' ? on : off);
+      Object.assign(usd.style, m === 'USD' ? on : off);
+      movCalcular();
+    }
+
+    function movCalcular() {
+      const raw = parseFloat(document.getElementById('mov-monto').value) || 0;
+      const el = document.getElementById('mov-conversion');
+      if (raw <= 0) { el.innerHTML = '&nbsp;'; return; }
+      const tp = estado.tasa_par, tb = estado.tasa_bcv;
+      // El registro SIEMPRE se guarda valorado a paralela (el dolar que repones
+      // lo compras a paralela). El BCV se muestra solo como referencia fiscal.
+      const usdPar = _movMoneda === 'USD' ? raw : raw / tp;
+      const bs = _movMoneda === 'Bs' ? raw : raw * tp;
+      const usdBcv = tb > 0 ? bs / tb : 0;
+      const fmtT = (n) => n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      el.innerHTML =
+        '<strong>Se guarda: ' + fmtUSD(usdPar) + '</strong> &nbsp;·&nbsp; ' + fmtBS(bs) +
+        '<br><span style="color:var(--dgray)">Paralela ' + fmtT(tp) + ' &nbsp;·&nbsp; al BCV (' + fmtT(tb) + ') seria ' + fmtUSD(usdBcv) + '</span>';
+    }
+
+    function movSetCategoria(id) {
+      _movCat = movCatalogo().find(c => c.id === id) || null;
+      movCatalogo().forEach(c => {
+        const b = document.getElementById('mov-cat-' + c.id);
+        if (b) b.classList.toggle('on', c.id === id);
+      });
+      const h = document.getElementById('mov-cat-hint');
+      h.innerHTML = _movCat ? '<i class="ti ti-info-circle"></i> ' + _movCat.hint : '&nbsp;';
+    }
+
+    // ── Selector de empresa con advertencia ──
+    function movPintarEmpresa() {
+      ['directa', 'dist', 'ambas'].forEach(e => {
+        const b = document.getElementById('mov-emp-' + e);
+        if (b) b.classList.toggle('on', e === _movEmpresa);
+      });
+      const h = document.getElementById('mov-emp-hint');
+      if (_movEmpresa === 'ambas') {
+        h.innerHTML = '<i class="ti ti-info-circle"></i> Costo compartido — se reparte después entre las dos empresas.';
+      } else if (_movEmpresa !== estado.empresa) {
+        h.innerHTML = '<span style="color:var(--gold)"><i class="ti ti-alert-triangle"></i> Distinta a la empresa donde estás trabajando.</span>';
+      } else {
+        h.innerHTML = '&nbsp;';
+      }
+    }
+
+    function movSetEmpresa(emp) {
+      // Advertencia solo cuando se elige la empresa CONTRARIA a la activa.
+      // "Ambas" no advierte: es un gasto compartido legítimo, no un error.
+      if (emp !== 'ambas' && emp !== estado.empresa) {
+        _movEmpresaPend = emp;
+        document.getElementById('mov-warn-tit').textContent = 'Estás en ' + nombreEmpresa(estado.empresa);
+        document.getElementById('mov-warn-dest').textContent = nombreEmpresa(emp);
+        document.getElementById('mov-warn-ok').textContent = 'Sí, es de ' + nombreEmpresa(emp);
+        document.getElementById('modal-mov-empresa').classList.add('show');
+        return;
+      }
+      _movEmpresa = emp;
+      movPintarEmpresa();
+    }
+
+    function movCancelarEmpresa() {
+      _movEmpresaPend = null;
+      document.getElementById('modal-mov-empresa').classList.remove('show');
+    }
+
+    function movConfirmarEmpresa() {
+      if (_movEmpresaPend) _movEmpresa = _movEmpresaPend;
+      _movEmpresaPend = null;
+      document.getElementById('modal-mov-empresa').classList.remove('show');
+      movPintarEmpresa();
+    }
+
+    // ── Guardar ──
+    async function guardarMovimiento() {
+      // Las reglas se validan ACÁ, en la función que guarda, no en la interfaz.
+      if (estado.rol !== 'gerente') { notif('Solo el gerente registra movimientos de caja', 'error'); return; }
+      if (!_sb || !_supabaseConectado) { notif('Sin conexión: no se puede guardar el movimiento', 'error'); return; }
+
+      const raw = parseFloat(document.getElementById('mov-monto').value) || 0;
+      if (raw <= 0) { notif('Escribe cuánto entró o salió', 'error'); return; }
+      if (!_movCat) { notif('Elige en qué fue el movimiento', 'error'); return; }
+
+      const concepto = (document.getElementById('mov-concepto').value || '').trim();
+      if (!concepto) { notif('Escribe a quién o para qué', 'error'); return; }
+
+      const fechaStr = document.getElementById('mov-fecha').value;
+      if (!fechaStr) { notif('Falta la fecha', 'error'); return; }
+
+      if (!['directa', 'dist', 'ambas'].includes(_movEmpresa)) { notif('Empresa inválida', 'error'); return; }
+      if (!['opex', 'inventario', 'capex', 'no_gasto'].includes(_movCat.clas)) { notif('Clasificación inválida', 'error'); return; }
+
+      const t = estado.tasa_par;
+      const montoUSD = _movMoneda === 'USD' ? raw : raw / t;
+      const montoBs = _movMoneda === 'Bs' ? raw : raw * t;
+
+      // Mediodía local: evita que la fecha se corra un día al convertir a UTC
+      const fechaISO = new Date(fechaStr + 'T12:00:00').toISOString();
+
+      const btn = document.getElementById('mov-btn-guardar');
+      btn.disabled = true;
+
+      try {
+        const { error } = await _sb.from('movimientos_caja').insert({
+          fecha: fechaISO,
+          tipo: _movTipo,
+          empresa: _movEmpresa,
+          categoria: _movCat.label,
+          clasificacion: _movCat.clas,
+          concepto: concepto,
+          monto_usd: Math.round(montoUSD * 100) / 100,
+          monto_bs: Math.round(montoBs * 100) / 100,
+          tasa_usada: t,
+          tasa_bcv_ref: estado.tasa_bcv,
+          moneda_origen: _movMoneda,
+          metodo: document.getElementById('mov-metodo').value,
+          afecta_caja: true,
+          estado: 'activo',
+          registrado_por: estado.usuario || 'Sistema'
+        });
+        if (error) throw error;
+
+        _sbLogBitacora(estado.usuario, _movEmpresa, 'caja',
+          (_movTipo === 'salida' ? 'Registró salida ' : 'Registró entrada ') +
+          fmtUSD(montoUSD) + ' — ' + _movCat.label + ' — ' + concepto, false);
+
+        notif(_movTipo === 'salida' ? 'Salida registrada' : 'Entrada registrada', 'success');
+        cerrarModalMovimiento();
+        renderMovimientos();
+
+      } catch (err) {
+        console.error('[ARJ] Error guardando movimiento:', err);
+        notif('No se pudo guardar: ' + (err.message || 'error desconocido'), 'error');
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    // ── Anulación (nunca DELETE) ──
+    function abrirMovAnular(id) {
+      const m = MOVIMIENTOS.find(x => x.id === id);
+      if (!m) return;
+      _movAnularId = id;
+      document.getElementById('mov-anular-info').textContent =
+        m.concepto + ' · ' + m.categoria + ' · ' + fmtUSD(m.monto_usd);
+      document.getElementById('mov-anular-motivo').value = '';
+      document.getElementById('modal-mov-anular').classList.add('show');
+    }
+
+    function cerrarMovAnular() {
+      _movAnularId = null;
+      document.getElementById('modal-mov-anular').classList.remove('show');
+    }
+
+    async function confirmarMovAnular() {
+      const motivo = (document.getElementById('mov-anular-motivo').value || '').trim();
+      if (!motivo) { notif('El motivo es obligatorio', 'error'); return; }
+      if (!_movAnularId) return;
+      try {
+        const { error } = await _sb.from('movimientos_caja')
+          .update({ estado: 'anulado', anulado_motivo: motivo })
+          .eq('id', _movAnularId);
+        if (error) throw error;
+        _sbLogBitacora(estado.usuario, estado.empresa, 'caja',
+          'Anuló movimiento de caja #' + _movAnularId + ' — ' + motivo, true);
+        notif('Movimiento anulado', 'success');
+        cerrarMovAnular();
+        renderMovimientos();
+      } catch (err) {
+        console.error('[ARJ] Error anulando movimiento:', err);
+        notif('No se pudo anular: ' + (err.message || 'error'), 'error');
       }
     }
 
