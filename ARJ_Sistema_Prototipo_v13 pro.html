@@ -4075,6 +4075,30 @@ GEN-3401    5"
             <div class="kpi-val" id="kpi-stock-critico">7</div>
             <div class="kpi-sub" id="kpi-stock-sub">≤ 10 ud (Venta Directa)</div>
           </div>
+          <div class="kpi-card green">
+            <div class="kpi-icon"><i class="ti ti-coin"></i></div>
+            <div class="kpi-label">Utilidad bruta del mes</div>
+            <div class="kpi-val" id="rep-utilidad">$ 0</div>
+            <div class="kpi-sub" id="rep-utilidad-sub" style="color:var(--dgray);font-weight:600">Sin datos aún</div>
+          </div>
+          <div class="kpi-card gold">
+            <div class="kpi-icon"><i class="ti ti-percentage"></i></div>
+            <div class="kpi-label">Margen real vendido</div>
+            <div class="kpi-val" id="rep-margen-real">0%</div>
+            <div class="kpi-sub" id="rep-margen-real-sub" style="color:var(--dgray);font-weight:600">Sin datos aún</div>
+          </div>
+          <div class="kpi-card blue">
+            <div class="kpi-icon"><i class="ti ti-scale"></i></div>
+            <div class="kpi-label">Punto de equilibrio</div>
+            <div class="kpi-val" id="rep-equilibrio">$ 0</div>
+            <div class="kpi-sub" id="rep-equilibrio-sub" style="color:var(--dgray);font-weight:600">Configura los costos fijos</div>
+          </div>
+          <div class="kpi-card red">
+            <div class="kpi-icon"><i class="ti ti-building-store"></i></div>
+            <div class="kpi-label">Costos fijos del mes</div>
+            <div class="kpi-val" id="rep-fijos">$ 0</div>
+            <div class="kpi-sub" id="rep-fijos-sub" style="color:var(--dgray);font-weight:600">Sin configurar</div>
+          </div>
         </div>
 
         <!-- METAS DE VENTA -->
@@ -4275,6 +4299,13 @@ GEN-3401    5"
               step="0.001" min="1" max="5" onchange="actualizarFactorDefault(this.value)"></div>
           <div class="config-row"><label style="font-size:11px;color:var(--dgray)">Solo aplica a productos NUEVOS</label><label
               style="font-size:11px;color:var(--dgray)">No toca los ya cargados</label></div>
+          <div class="config-row"><label>Costos fijos — mes</label><input class="val-input" id="cfg-fijos-mes"
+              type="month" onchange="cambiarPeriodoFijos()"></div>
+          <div class="config-row"><label>Monto del mes USD</label><input class="val-input" id="cfg-fijos"
+              value="0" type="number" step="0.01" min="0" onchange="actualizarCostosFijos(this.value)"></div>
+          <div class="config-row" style="border:none;padding-top:4px"><label
+              style="font-size:11px;color:var(--dgray)">Cada mes guarda su propio monto</label></div>
+          <div id="cfg-fijos-lista" style="font-size:11px;color:var(--dgray);padding:0 0 8px"></div>
           <div class="config-row"><label>Costos fijos /mes</label><input class="val-input" value="6148" type="number"
               step="50"></div>
           <div class="config-row"><label>IVA Venezuela</label><input class="val-input" value="0" type="number"
@@ -5278,6 +5309,12 @@ GEN-3401    5"
           estado.factor_default = parseFloat(cfg.factor_landed_default) || FACTOR_LANDED_FALLBACK;
           const _inpF = document.getElementById('cfg-factor');
           if (_inpF) _inpF.value = estado.factor_default;
+          estado.costos_fijos_mes = parseFloat(cfg.costos_fijos_mes) || 0;
+          estado.costos_fijos_hist = (cfg.costos_fijos_hist && typeof cfg.costos_fijos_hist === 'object')
+            ? cfg.costos_fijos_hist : {};
+          const _selM = document.getElementById('cfg-fijos-mes');
+          if (_selM && !_selM.value) _selM.value = periodoDe(new Date());
+          cambiarPeriodoFijos();
         }
 
         // Sistemas
@@ -5453,6 +5490,10 @@ GEN-3401    5"
           descripcion: it.desc,
           cantidad: it.cant,
           fob_unitario: it.fob || 0,
+          // El factor se CONGELA aquí, igual que factor_bs. Si mañana ajustas
+          // el factor real de un proveedor, la utilidad de las ventas ya hechas
+          // no se reescribe: cada renglón guarda el costo con el que se vendió.
+          factor_landed: factorLandedDe(it),
           precio_unitario: it.precio,
           total_linea: it.subtotal,
           tier: estado.tier || 'Publico'
@@ -5726,6 +5767,82 @@ GEN-3401    5"
       if (error) console.error('[ARJ] Error guardando factor por defecto:', error);
     }
 
+    // ═══ COSTOS FIJOS POR PERÍODO (v13.1) ═══
+    // Los costos fijos son un ESTIMADO que cambia mes a mes. Guardar un solo
+    // número reescribiría el punto de equilibrio de los meses ya cerrados,
+    // el mismo error que ya evitamos con factor_bs y con factor_landed.
+    // Cada mes guarda el suyo en un mapa { 'AAAA-MM': monto }.
+    function periodoDe(d) {
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+    }
+
+    // Un mes sin monto propio hereda el del último mes ANTERIOR registrado.
+    // Nunca hereda de un mes futuro: el pasado no se estima con datos que aún no existían.
+    function costosFijosDe(periodo) {
+      const h = estado.costos_fijos_hist || {};
+      if (h[periodo] != null) return parseFloat(h[periodo]) || 0;
+      const previos = Object.keys(h).filter(k => k < periodo).sort();
+      if (previos.length) return parseFloat(h[previos[previos.length - 1]]) || 0;
+      return parseFloat(estado.costos_fijos_mes) || 0;
+    }
+
+    async function _sbGuardarCostosFijos() {
+      if (!_sb || !_supabaseConectado) return;
+      const { error } = await _sb.from('configuracion').update({
+        costos_fijos_hist: estado.costos_fijos_hist,
+        costos_fijos_mes: costosFijosDe(periodoDe(new Date()))
+      }).eq('id', 1);
+      if (error) console.error('[ARJ] Error guardando costos fijos:', error);
+    }
+
+    function cambiarPeriodoFijos() {
+      const selM = document.getElementById('cfg-fijos-mes');
+      const inp = document.getElementById('cfg-fijos');
+      if (!selM || !inp) return;
+      if (!selM.value) selM.value = periodoDe(new Date());
+      const h = estado.costos_fijos_hist || {};
+      inp.value = (h[selM.value] != null) ? h[selM.value] : '';
+      inp.placeholder = (h[selM.value] == null)
+        ? 'Sin dato — hereda ' + fmtUSD(costosFijosDe(selM.value)) : '';
+      renderListaFijos();
+    }
+
+    function renderListaFijos() {
+      const cont = document.getElementById('cfg-fijos-lista');
+      if (!cont) return;
+      const h = estado.costos_fijos_hist || {};
+      const meses = Object.keys(h).sort().reverse().slice(0, 6);
+      cont.innerHTML = meses.length === 0
+        ? 'Ningún mes registrado todavía.'
+        : 'Registrados: ' + meses.map(m => m + ' · ' + fmtUSD(parseFloat(h[m]) || 0)).join('  |  ');
+    }
+
+    function actualizarCostosFijos(v) {
+      const selM = document.getElementById('cfg-fijos-mes');
+      const periodo = (selM && selM.value) ? selM.value : periodoDe(new Date());
+      const raw = String(v).trim();
+      if (raw === '') {
+        delete estado.costos_fijos_hist[periodo];
+        _sbGuardarCostosFijos();
+        cambiarPeriodoFijos();
+        if (typeof actualizarKpisReportes === 'function') actualizarKpisReportes();
+        notif('Se borró el monto de ' + periodo + '. Ese mes vuelve a heredar del anterior.', 'warning');
+        return;
+      }
+      const c = parseFloat(raw);
+      if (!isFinite(c) || c < 0) {
+        notif('Los costos fijos no pueden ser negativos', 'error');
+        cambiarPeriodoFijos();
+        return;
+      }
+      estado.costos_fijos_hist[periodo] = c;
+      logBitacora('precio', 'Fijó los costos fijos de ' + periodo + ' en ' + fmtUSD(c), true);
+      _sbGuardarCostosFijos();
+      cambiarPeriodoFijos();
+      if (typeof actualizarKpisReportes === 'function') actualizarKpisReportes();
+      notif('Costos fijos de ' + periodo + ': ' + fmtUSD(c) + '. Los otros meses no se tocaron.', 'success');
+    }
+
     function actualizarFactorDefault(v) {
       const f = parseFloat(v);
       if (!isFinite(f) || f < 1 || f > 5) {
@@ -5891,6 +6008,8 @@ GEN-3401    5"
       tasa_par: 215.50,
       tasa_bcv: 195.20,
       factor_default: 1.471,
+      costos_fijos_mes: 0,
+      costos_fijos_hist: {},
       rol: null,
       usuario: null,
     };
@@ -9626,10 +9745,100 @@ GEN-3401    5"
       if (ingreso > 0) {
         const margen = ((ingreso - costo) / ingreso) * 100;
         set('rep-margen', margen.toFixed(1) + '%');
-        set('rep-margen-sub', 'Sobre precio público del catálogo');
+        set('rep-margen-sub', 'Teórico — todo a precio de lista');
       } else {
         set('rep-margen', '0%');
         set('rep-margen-sub', 'Sin datos aún');
+      }
+
+      cargarUtilidadMes(totMes);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // UTILIDAD BRUTA Y PUNTO DE EQUILIBRIO (v13.1)
+    //
+    // El margen del catálogo de arriba es teórico: asume que todo se vende
+    // a precio de lista. Esto de aquí es lo REAL: lee factura_items, que
+    // guarda el fob y el factor CONGELADOS al momento de emitir.
+    //
+    // Ingreso = el mismo total del KPI "Ventas este mes", para que los dos
+    // números de la pantalla siempre cuadren entre sí.
+    // Costo   = suma de (fob congelado × factor congelado × cantidad).
+    // ═══════════════════════════════════════════════════════════════
+    async function cargarUtilidadMes(ventasMes) {
+      const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+      const periodoAct = periodoDe(new Date());
+      const cf = costosFijosDe(periodoAct);
+      const propio = (estado.costos_fijos_hist || {})[periodoAct] != null;
+      set('rep-fijos', fmtUSD(cf));
+      set('rep-fijos-sub', cf <= 0 ? 'Sin configurar — ponlos en Configuración'
+        : (propio ? 'Monto propio de ' + periodoAct : 'Heredado de un mes anterior'));
+
+      if (!_sb || !_supabaseConectado) {
+        set('rep-utilidad-sub', 'Sin conexión a la base');
+        return;
+      }
+
+      const ahora = new Date();
+      const mes0 = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+      const ids = (TODAS_FACTURAS || [])
+        .filter(f => f.empresa === estado.empresa && f.estado !== 'anulada'
+          && f.fecha_raw && new Date(f.fecha_raw) >= mes0)
+        .map(f => f.id).filter(Boolean);
+
+      if (ids.length === 0) {
+        set('rep-utilidad', fmtUSD(0));
+        set('rep-utilidad-sub', 'Sin ventas este mes');
+        set('rep-margen-real', '0%');
+        set('rep-margen-real-sub', 'Sin ventas este mes');
+        set('rep-equilibrio', cf > 0 ? fmtUSD(cf) : fmtUSD(0));
+        set('rep-equilibrio-sub', cf > 0 ? 'Sin margen aún para calcularlo' : 'Configura los costos fijos');
+        return;
+      }
+
+      const { data: its, error } = await _sb.from('factura_items')
+        .select('cantidad,fob_unitario,factor_landed').in('factura_id', ids);
+      if (error || !its) {
+        set('rep-utilidad-sub', 'No se pudieron leer los renglones');
+        return;
+      }
+
+      // Un renglón con fob 0 calcula costo 0 y dispara el margen al 100%.
+      // Se cuentan aparte para avisar que la utilidad está inflada, en vez de
+      // mostrar un número bonito y falso.
+      let costo = 0, sinCosto = 0;
+      its.forEach(i => {
+        const cant = parseFloat(i.cantidad) || 0;
+        const fob = parseFloat(i.fob_unitario) || 0;
+        const fac = parseFloat(i.factor_landed);
+        if (fob <= 0) sinCosto++;
+        costo += fob * ((isFinite(fac) && fac > 0) ? fac : FACTOR_LANDED_FALLBACK) * cant;
+      });
+
+      const ingreso = parseFloat(ventasMes) || 0;
+      const util = ingreso - costo;
+      const margen = ingreso > 0 ? (util / ingreso) * 100 : 0;
+
+      set('rep-utilidad', fmtUSD(util));
+      set('rep-utilidad-sub', 'Ventas ' + fmtUSD(ingreso) + ' − costo ' + fmtUSD(costo));
+      set('rep-margen-real', margen.toFixed(1) + '%');
+      set('rep-margen-real-sub', sinCosto > 0
+        ? 'Ojo: ' + sinCosto + (sinCosto === 1 ? ' renglón sin costo' : ' renglones sin costo') + ' — margen inflado'
+        : 'Sobre lo efectivamente vendido');
+
+      if (cf <= 0) {
+        set('rep-equilibrio', fmtUSD(0));
+        set('rep-equilibrio-sub', 'Configura los costos fijos');
+      } else if (margen <= 0) {
+        set('rep-equilibrio', '—');
+        set('rep-equilibrio-sub', 'Margen en cero o negativo');
+      } else {
+        const pe = cf / (margen / 100);
+        const falta = pe - ingreso;
+        set('rep-equilibrio', fmtUSD(pe));
+        set('rep-equilibrio-sub', falta > 0
+          ? 'Faltan ' + fmtUSD(falta) + ' para cubrir los fijos'
+          : 'Superado por ' + fmtUSD(Math.abs(falta)));
       }
     }
 
