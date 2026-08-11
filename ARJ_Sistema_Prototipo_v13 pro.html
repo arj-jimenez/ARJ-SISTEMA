@@ -4113,15 +4113,13 @@ GEN-3401    5"
         <div class="chart-card" style="margin-bottom:16px">
           <h3><i class="ti ti-chart-line" style="color:var(--blue)"></i> Comparativa de ventas — Mes actual vs Mes
             anterior</h3>
-          <div style="padding:20px;text-align:center;color:var(--dgray);font-size:13px">Sin ventas registradas todavía
-          </div>
+          <div id="comp-meses-content"></div>
         </div>
 
         <div class="dash-grid">
           <div class="chart-card">
             <h3><i class="ti ti-chart-bar" style="color:var(--blue)"></i> Productos más vendidos del mes</h3>
-            <div style="padding:20px;text-align:center;color:var(--dgray);font-size:13px">Sin ventas registradas todavía
-            </div>
+            <div id="top-productos-content"></div>
           </div>
           <div class="list-card">
             <h3><i class="ti ti-receipt" style="color:var(--blue)"></i> Últimas ventas</h3>
@@ -7877,14 +7875,21 @@ GEN-3401    5"
   <div style="background:#FFF;border:1px solid var(--border);border-radius:10px;padding:14px 16px">
     <div style="font-size:11px;color:var(--dgray);text-transform:uppercase;letter-spacing:.04em;font-weight:500;margin-bottom:10px">Metas por vendedor</div>`;
 
-      if (Object.keys(metas.vendedores).length === 0) html += '<div style="padding:14px;text-align:center;color:var(--dgray);font-size:12px">Sin vendedores configurados — se agregarán cuando definas metas individuales</div>';
+      // Un vendedor aparece si tiene meta puesta O si vendió algo este mes.
+      // Antes había que definir la meta primero, y como no existía botón para
+      // eso, la lista quedaba vacía para siempre.
+      const listaVend = [...new Set(
+        Object.keys(metas.vendedores).concat(Object.keys(ventasMesActual.vendedores))
+      )].sort();
 
-      Object.keys(metas.vendedores).forEach(v => {
-        const meta = metas.vendedores[v];
+      if (listaVend.length === 0) html += '<div style="padding:14px;text-align:center;color:var(--dgray);font-size:12px">Nadie ha facturado todavía este mes en esta empresa</div>';
+
+      listaVend.forEach(v => {
+        const meta = parseFloat(metas.vendedores[v]) || 0;
         const vendido = ventasMesActual.vendedores[v] || 0;
-        const pct = Math.min(100, (vendido / meta) * 100);
+        const pct = meta > 0 ? Math.min(100, (vendido / meta) * 100) : 0;
         const falta = Math.max(0, meta - vendido);
-        const cumplido = pct >= 100;
+        const cumplido = meta > 0 && pct >= 100;
         html += `<div style="margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
         <div style="display:flex;align-items:center;gap:6px"><i class="ti ti-user" style="color:var(--blue)"></i><span style="font-weight:600;font-size:12.5px">${v}</span>${cumplido ? '<span style="background:var(--lgreen);color:var(--green);padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600">✓ CUMPLIDA</span>' : ''}</div>
@@ -7894,8 +7899,8 @@ GEN-3401    5"
         <div style="background:${cumplido ? 'linear-gradient(90deg,var(--green),#4CAF50)' : 'linear-gradient(90deg,var(--blue),var(--navy))'};height:100%;width:${pct}%;transition:width 0.4s"></div>
       </div>
       <div style="display:flex;justify-content:space-between;margin-top:3px;font-size:11px;color:var(--dgray)">
-        <span>${fmtUSD(vendido)} (${pct.toFixed(0)}%)</span>
-        <span>Falta ${fmtUSD(falta)}</span>
+        <span>${fmtUSD(vendido)}${meta > 0 ? ' (' + pct.toFixed(0) + '%)' : ''}</span>
+        <span>${meta > 0 ? 'Falta ' + fmtUSD(falta) : 'Sin meta asignada'}</span>
       </div>
     </div>`;
       });
@@ -9702,11 +9707,15 @@ GEN-3401    5"
     function actualizarKpiStockCritico() {
       const umbral = estado.empresa === 'directa' ? 10 : 20;
       const stockField = estado.empresa === 'directa' ? 'stock_vd' : 'stock_dist';
-      const criticos = PRODUCTOS.filter(p => p[stockField] <= umbral).length;
+      // "Agotado" (0 unidades) y "bajo" (1 a umbral) son problemas distintos:
+      // mezclarlos daba un número que abarcaba casi todo el catálogo mientras
+      // la importación no llega, y por eso no servía para decidir nada.
+      const agotados = PRODUCTOS.filter(p => (p[stockField] || 0) <= 0).length;
+      const bajos = PRODUCTOS.filter(p => (p[stockField] || 0) > 0 && (p[stockField] || 0) <= umbral).length;
       const el = document.getElementById('kpi-stock-critico');
       const sub = document.getElementById('kpi-stock-sub');
-      if (el) el.textContent = criticos;
-      if (sub) sub.textContent = `≤ ${umbral} ud (${estado.empresa === 'directa' ? 'Venta Directa' : 'Distribuidora'})`;
+      if (el) el.textContent = bajos;
+      if (sub) sub.textContent = `1 a ${umbral} ud · ${agotados} agotados de ${PRODUCTOS.length}`;
       actualizarKpisReportes();
     }
 
@@ -9751,7 +9760,104 @@ GEN-3401    5"
         set('rep-margen-sub', 'Sin datos aún');
       }
 
+      // ═══ VENTAS DEL MES POR EMPRESA Y POR VENDEDOR (v13.1) ═══
+      // Antes ventasMesActual nacía en cero y nadie lo llenaba: por eso la meta
+      // decía "Vendido $0" aunque hubiera facturas. Se recalcula desde las
+      // facturas reales cada vez que se pintan los KPIs.
+      ventasMesActual.directa = 0;
+      ventasMesActual.dist = 0;
+      Object.keys(ventasMesActual.vendedores).forEach(k => delete ventasMesActual.vendedores[k]);
+      (TODAS_FACTURAS || []).forEach(f => {
+        if (f.estado === 'anulada' || !f.fecha_raw) return;
+        if (new Date(f.fecha_raw) < mes0) return;
+        const t = f.total || 0;
+        if (f.empresa === 'directa') ventasMesActual.directa += t; else ventasMesActual.dist += t;
+        // El panel de vendedores acompaña a la meta de la empresa activa,
+        // así que solo suma lo vendido en esa empresa.
+        if (f.empresa === estado.empresa) {
+          const v = f.vendedor || 'Sin vendedor';
+          ventasMesActual.vendedores[v] = (ventasMesActual.vendedores[v] || 0) + t;
+        }
+      });
+      if (typeof renderMetas === 'function') renderMetas();
+      renderComparativaMeses();
+
       cargarUtilidadMes(totMes);
+    }
+
+    // ═══ COMPARATIVA MES ACTUAL vs MES ANTERIOR (v13.1) ═══
+    function renderComparativaMeses() {
+      const cont = document.getElementById('comp-meses-content');
+      if (!cont) return;
+      const ahora = new Date();
+      const mes0 = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+      const mesAnt0 = new Date(ahora.getFullYear(), ahora.getMonth() - 1, 1);
+      let act = 0, nAct = 0, ant = 0, nAnt = 0;
+      (TODAS_FACTURAS || []).forEach(f => {
+        if (f.empresa !== estado.empresa || f.estado === 'anulada' || !f.fecha_raw) return;
+        const d = new Date(f.fecha_raw);
+        if (d >= mes0) { act += f.total || 0; nAct++; }
+        else if (d >= mesAnt0) { ant += f.total || 0; nAnt++; }
+      });
+      const nombreMes = d => d.toLocaleDateString('es-VE', { month: 'long', year: 'numeric' });
+      const tope = Math.max(act, ant, 1);
+      const barra = (val, n, etiqueta, color) => `
+    <div style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:4px">
+        <span style="color:var(--dgray);text-transform:capitalize">${etiqueta}</span>
+        <span style="font-weight:600;color:var(--navy)">${fmtUSD(val)} · ${n} ${n === 1 ? 'factura' : 'facturas'}</span>
+      </div>
+      <div style="background:var(--gray);border-radius:5px;height:20px;overflow:hidden">
+        <div style="background:${color};height:100%;width:${(val / tope) * 100}%;transition:width .4s"></div>
+      </div>
+    </div>`;
+      let pie;
+      if (ant === 0 && act === 0) {
+        pie = '<div style="font-size:11.5px;color:var(--dgray)">Sin ventas en ninguno de los dos meses.</div>';
+      } else if (ant === 0) {
+        pie = '<div style="font-size:11.5px;color:var(--dgray)">No hay mes anterior con ventas: todavía no se puede comparar.</div>';
+      } else {
+        const varPct = ((act - ant) / ant) * 100;
+        const sube = varPct >= 0;
+        pie = `<div style="font-size:12px;padding-top:8px;border-top:1px dashed var(--border)">
+      <span style="color:${sube ? 'var(--green)' : 'var(--red)'};font-weight:600">${sube ? '▲' : '▼'} ${Math.abs(varPct).toFixed(1)}%</span>
+      <span style="color:var(--dgray)"> respecto al mes anterior · diferencia ${fmtUSD(Math.abs(act - ant))}</span>
+    </div>`;
+      }
+      cont.innerHTML = '<div style="padding:4px 2px">'
+        + barra(act, nAct, nombreMes(mes0) + ' (en curso)', 'linear-gradient(90deg,var(--blue),var(--navy))')
+        + barra(ant, nAnt, nombreMes(mesAnt0), 'var(--dgray)')
+        + pie + '</div>';
+    }
+
+    // ═══ PRODUCTOS MÁS VENDIDOS DEL MES (v13.1) ═══
+    // Recibe los renglones que ya trajo cargarUtilidadMes: una sola consulta
+    // alimenta la utilidad y este ranking.
+    function renderTopProductos(items) {
+      const cont = document.getElementById('top-productos-content');
+      if (!cont) return;
+      const vacio = '<div style="padding:20px;text-align:center;color:var(--dgray);font-size:13px">Sin ventas este mes</div>';
+      if (!items || items.length === 0) { cont.innerHTML = vacio; return; }
+      const acc = {};
+      items.forEach(i => {
+        const k = i.cod_alt || '—';
+        if (!acc[k]) acc[k] = { cod: k, desc: i.descripcion || '', cant: 0, total: 0 };
+        acc[k].cant += parseFloat(i.cantidad) || 0;
+        acc[k].total += parseFloat(i.total_linea) || 0;
+      });
+      const top = Object.values(acc).sort((a, b) => b.total - a.total).slice(0, 5);
+      if (top.length === 0) { cont.innerHTML = vacio; return; }
+      const tope = top[0].total || 1;
+      cont.innerHTML = '<div style="padding:4px 2px">' + top.map(p => `
+    <div style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:3px;gap:8px">
+        <span style="font-weight:600;color:var(--navy);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${p.desc || p.cod}</span>
+        <span style="color:var(--dgray);white-space:nowrap">${p.cant} ud · ${fmtUSD(p.total)}</span>
+      </div>
+      <div style="background:var(--gray);border-radius:4px;height:14px;overflow:hidden">
+        <div style="background:linear-gradient(90deg,var(--blue),var(--navy));height:100%;width:${(p.total / tope) * 100}%"></div>
+      </div>
+    </div>`).join('') + '</div>';
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -9787,6 +9893,7 @@ GEN-3401    5"
         .map(f => f.id).filter(Boolean);
 
       if (ids.length === 0) {
+        renderTopProductos([]);
         set('rep-utilidad', fmtUSD(0));
         set('rep-utilidad-sub', 'Sin ventas este mes');
         set('rep-margen-real', '0%');
@@ -9797,7 +9904,7 @@ GEN-3401    5"
       }
 
       const { data: its, error } = await _sb.from('factura_items')
-        .select('cantidad,fob_unitario,factor_landed').in('factura_id', ids);
+        .select('cantidad,fob_unitario,factor_landed,cod_alt,descripcion,total_linea').in('factura_id', ids);
       if (error || !its) {
         set('rep-utilidad-sub', 'No se pudieron leer los renglones');
         return;
@@ -9814,6 +9921,8 @@ GEN-3401    5"
         if (fob <= 0) sinCosto++;
         costo += fob * ((isFinite(fac) && fac > 0) ? fac : FACTOR_LANDED_FALLBACK) * cant;
       });
+
+      renderTopProductos(its);
 
       const ingreso = parseFloat(ventasMes) || 0;
       const util = ingreso - costo;
