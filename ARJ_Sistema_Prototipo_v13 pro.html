@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sistema ARJ — Prototipo v12</title>
+  <title>Sistema ARJ</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.40.0/tabler-icons.min.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
@@ -2804,7 +2804,7 @@
         position: static !important;
         width: 100% !important;
         background: #FFF !important;
-        padding: 0 !important;
+        padding: 12mm 14mm !important;
         margin: 0 !important;
       }
 
@@ -2824,9 +2824,12 @@
         height: auto !important;
       }
 
+      /* margin:0 es lo que elimina el encabezado y el pie que Chrome estampa
+         por su cuenta (fecha, título de la página y ruta del archivo).
+         El margen real del papel se mueve al padding de #doc-cotizacion. */
       @page {
         size: letter;
-        margin: 12mm;
+        margin: 0;
       }
     }
 
@@ -4991,7 +4994,7 @@ GEN-3401    5"
         <div style="display:flex;gap:8px">
           <button class="btn btn-secondary btn-sm" onclick="cerrarPrintCotizacion()"><i class="ti ti-x"></i>
             Cerrar</button>
-          <button class="btn btn-primary btn-sm" onclick="window.print()"><i class="ti ti-printer"></i>
+          <button class="btn btn-primary btn-sm" onclick="imprimirDocumento()"><i class="ti ti-printer"></i>
             Imprimir</button>
         </div>
       </div>
@@ -7016,6 +7019,21 @@ GEN-3401    5"
 
     function cerrarPrintCotizacion() {
       document.getElementById('modal-print-cotizacion').classList.remove('show');
+    }
+
+    // ═══ IMPRIMIR (v13.1) ═══
+    // Chrome usa el <title> del documento como nombre sugerido al "Guardar como PDF".
+    // Se pone el número del documento antes de imprimir y se restaura después,
+    // para que el archivo salga como VD-2026-00003.pdf sin renombrarlo a mano.
+    function imprimirDocumento() {
+      const tituloPrevio = document.title;
+      const num = (document.getElementById('dc-numero') || {}).textContent || '';
+      const lbl = (document.querySelector('#modal-print-cotizacion .dc-num-label') || {}).textContent || 'DOCUMENTO';
+      const limpio = num.replace(/^N°\s*/i, '').trim();
+      if (limpio) document.title = lbl.trim() + ' ' + limpio;
+      window.print();
+      // El restore corre después de que el navegador cierra el diálogo de impresión.
+      setTimeout(function () { document.title = tituloPrevio; }, 800);
     }
 
     function generarVistaImpresion() {
