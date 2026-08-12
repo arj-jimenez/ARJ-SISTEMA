@@ -3057,7 +3057,7 @@
       <div class="login-error" id="login-error"><i class="ti ti-x"></i> Email o contraseña incorrectos</div>
       <div class="login-field">
         <label>Email</label>
-        <input type="email" id="login-user" placeholder="ej: vendedor1@arj.local" autocomplete="email">
+        <input type="email" id="login-user" placeholder="tu correo" autocomplete="email">
       </div>
       <div class="login-field">
         <label>Contraseña</label>
@@ -3152,7 +3152,10 @@
         Presupuestos</div>
       <div class="nav-item" data-page="historial" onclick="navTo('historial')"><i class="ti ti-file-text"></i> Historial
       </div>
-      <div class="nav-item" data-page="turnos" onclick="navTo('turnos')"><i class="ti ti-clock-play"></i> Turnos / Caja
+      <!-- v13.2 OCULTO: Turnos/Caja vive solo en localStorage (se pierde al
+           cambiar de PC) y Movimientos ya cubre entradas/salidas de efectivo.
+           Para reactivarlo: quitar style="display:none". El modulo sigue completo. -->
+      <div class="nav-item" data-page="turnos" onclick="navTo('turnos')" style="display:none"><i class="ti ti-clock-play"></i> Turnos / Caja
       </div>
       <div class="nav-item" data-page="inventario" onclick="navTo('inventario')"><i class="ti ti-package"></i>
         Inventario</div>
@@ -3162,7 +3165,9 @@
       <div class="nav-item" data-page="clientes" onclick="navTo('clientes')"><i class="ti ti-users"></i> Clientes</div>
       <div class="nav-item" data-page="dashboard" data-restrict="gerente" onclick="navTo('dashboard')"><i
           class="ti ti-chart-bar"></i> Reportes</div>
-      <div class="nav-item" data-page="alertas" data-restrict="gerente" onclick="navTo('alertas')"><i
+      <!-- v13.2 OCULTO: ALERTAS nunca se llena, la pestana siempre sale vacia.
+           Para reactivarla: quitar style="display:none" y llenar el array ALERTAS. -->
+      <div class="nav-item" data-page="alertas" data-restrict="gerente" onclick="navTo('alertas')" style="display:none"><i
           class="ti ti-bell-ringing"></i> Alertas</div>
       <div class="nav-item" data-page="bitacora" data-restrict="gerente" onclick="navTo('bitacora')"><i
           class="ti ti-history"></i> Bitácora</div>
@@ -3170,6 +3175,77 @@
           class="ti ti-file-export"></i> Export. Fiscal</div>
       <div class="nav-item" data-page="config" data-restrict="gerente" onclick="navTo('config')"><i
           class="ti ti-settings"></i> Configuración</div>
+    </div>
+
+    <!-- ═══ MODAL NUEVO CONTACTO (v13.3) ═══ -->
+    <div class="modal-overlay" id="modal-nuevo-contacto">
+      <div class="modal" style="max-width:420px">
+        <div class="modal-header">
+          <h3><i class="ti ti-user-plus"></i> Agregar contacto</h3>
+          <button class="modal-close" onclick="cerrarNuevoContacto()"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div style="font-size:12px;color:var(--dgray);margin-bottom:12px">Cliente: <strong id="nc-cliente-nombre" style="color:var(--navy)"></strong></div>
+          <div style="margin-bottom:10px">
+            <label style="font-size:11px;color:var(--dgray);font-weight:500;display:block;margin-bottom:3px">Nombre *</label>
+            <input type="text" class="val-input" id="nc-nombre" placeholder="Ej: Pedro Pérez" style="width:100%"
+              onkeydown="if(event.key==='Enter'){event.preventDefault();guardarNuevoContacto();}">
+          </div>
+          <div style="display:flex;gap:8px;margin-bottom:10px">
+            <div style="flex:1">
+              <label style="font-size:11px;color:var(--dgray);font-weight:500;display:block;margin-bottom:3px">Cargo</label>
+              <input type="text" class="val-input" id="nc-cargo" placeholder="Ej: Almacenista" style="width:100%">
+            </div>
+            <div style="flex:1">
+              <label style="font-size:11px;color:var(--dgray);font-weight:500;display:block;margin-bottom:3px">Teléfono</label>
+              <input type="text" class="val-input" id="nc-tel" placeholder="0414-0000000" style="width:100%">
+            </div>
+          </div>
+          <label style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--dgray);cursor:pointer">
+            <input type="checkbox" id="nc-principal" style="width:auto;margin:0">
+            Marcar como contacto principal
+          </label>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" onclick="cerrarNuevoContacto()">Cancelar</button>
+          <button class="btn btn-primary" id="nc-guardar" onclick="guardarNuevoContacto()">Guardar contacto</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ MODAL EQUIPO DE TRABAJO (v13.2) ═══ -->
+    <div class="modal-overlay" id="modal-equipo">
+      <div class="modal" style="max-width:460px">
+        <div class="modal-header">
+          <h3><i class="ti ti-users"></i> Equipo de trabajo</h3>
+          <button class="modal-close" onclick="cerrarModalEquipo()"><i class="ti ti-x"></i></button>
+        </div>
+        <div class="modal-body">
+          <div style="background:#FFF8E1;border-left:3px solid var(--gold);border-radius:6px;padding:9px 12px;margin-bottom:12px;font-size:11.5px;color:#5D4037">
+            <i class="ti ti-info-circle"></i> Esta lista es solo para <strong>ponerles metas</strong>. No crea usuarios que puedan entrar al sistema — eso se hace en Supabase.
+          </div>
+          <div style="display:flex;gap:6px;align-items:flex-end;margin-bottom:12px">
+            <div style="flex:1">
+              <label style="font-size:11px;color:var(--dgray);font-weight:500;display:block;margin-bottom:3px">Nombre</label>
+              <input type="text" class="val-input" id="eq-nombre" placeholder="Ej: PEDRO PEREZ" style="width:100%;text-transform:uppercase"
+                onkeydown="if(event.key==='Enter'){event.preventDefault();agregarAlEquipo();}">
+            </div>
+            <div style="width:130px">
+              <label style="font-size:11px;color:var(--dgray);font-weight:500;display:block;margin-bottom:3px">Empresa</label>
+              <select class="val-input" id="eq-empresa" style="width:100%">
+                <option value="directa">Venta Directa</option>
+                <option value="dist">Distribuidora</option>
+                <option value="ambas">Ambas</option>
+              </select>
+            </div>
+            <button class="btn btn-primary" onclick="agregarAlEquipo()"><i class="ti ti-plus"></i></button>
+          </div>
+          <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;max-height:280px;overflow-y:auto" id="eq-lista"></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" onclick="cerrarModalEquipo()">Cerrar</button>
+        </div>
+      </div>
     </div>
 
     <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -3815,7 +3891,7 @@ GEN-3401    5"
           <option value="cliente">Clientes</option>
         </select>
         <button class="btn btn-secondary btn-sm"
-          onclick="notif('Demo: aquí descargaría bitácora completa en Excel','warning')"><i class="ti ti-download"></i>
+          onclick="descargarBitacoraCSV()"><i class="ti ti-download"></i>
           Exportar</button>
       </div>
 
@@ -5174,8 +5250,14 @@ GEN-3401    5"
         // Productos
         const { data: prods, error: e1 } = await _sb.from('productos').select('*').eq('activo', true).order('cod_alt');
         if (e1) throw e1;
-        if (prods && prods.length > 0) {
-          PRODUCTOS.length = 0;
+        // v13.2 BLINDAJE: el catalogo se vacia SIEMPRE, venga o no venga data.
+        // Antes solo se vaciaba si venian filas, asi que una respuesta vacia
+        // (RLS cambiada, filtro activo=true que deja todo afuera, migracion a
+        // medias) dejaba vivos los productos demo del HTML y el sistema decia
+        // "conectado" mientras mostraba catalogo falso.
+        PRODUCTOS.length = 0;
+        {
+          if (!prods || prods.length === 0) throw new Error('Supabase devolvio 0 productos activos');
           prods.forEach(p => PRODUCTOS.push({
             id: p.id, cod_alt: p.cod_alt, cod_orig: p.cod_orig || '', cod_barras: p.cod_barras || '',
             desc: p.descripcion, marca: p.marca || '', fob: parseFloat(p.fob) || 0,
@@ -5192,7 +5274,12 @@ GEN-3401    5"
         // Clientes
         const { data: clis, error: e2 } = await _sb.from('clientes').select('*').eq('activo', true).order('nombre');
         if (e2) throw e2;
-        if (clis && clis.length > 0) {
+        // v13.2 BLINDAJE: mismo criterio que productos. Sin esto, una lista de
+        // clientes vacia dejaba vivos los 7 clientes demo y se podia facturar a
+        // un cliente que no existe en la base.
+        CLIENTES.length = 0;
+        {
+          if (!clis || clis.length === 0) throw new Error('Supabase devolvio 0 clientes activos');
           // Cargar contactos de todos los clientes
           const { data: contactos } = await _sb.from('contactos_cliente').select('*');
           const contactosPorCliente = {};
@@ -5201,7 +5288,6 @@ GEN-3401    5"
             contactosPorCliente[c.cliente_id].push(c);
           });
 
-          CLIENTES.length = 0;
           clis.forEach(c => {
             const cts = contactosPorCliente[c.id] || [];
             const principal = cts.find(x => x.es_principal) || cts[0] || null;
@@ -5310,6 +5396,10 @@ GEN-3401    5"
           estado.costos_fijos_mes = parseFloat(cfg.costos_fijos_mes) || 0;
           estado.costos_fijos_hist = (cfg.costos_fijos_hist && typeof cfg.costos_fijos_hist === 'object')
             ? cfg.costos_fijos_hist : {};
+          // v13.2: equipo de trabajo y metas por periodo
+          EQUIPO.length = 0;
+          if (Array.isArray(cfg.equipo)) cfg.equipo.forEach(t => EQUIPO.push(t));
+          METAS_HIST = (cfg.metas_hist && typeof cfg.metas_hist === 'object') ? cfg.metas_hist : {};
           const _selM = document.getElementById('cfg-fijos-mes');
           if (_selM && !_selM.value) _selM.value = periodoDe(new Date());
           cambiarPeriodoFijos();
@@ -5380,8 +5470,25 @@ GEN-3401    5"
     // 6. Actualiza saldo del cliente si es crédito
     // 7. Loguea en bitácora
     async function emitirFacturaReal() {
+      // v13.2: si no hay conexion, no se arranca. Antes se recorria media
+      // funcion y se moria al pedir el numero a `contadores`, dejando al papa
+      // con el cliente enfrente sin saber que paso.
+      if (!_sb || !_supabaseConectado) {
+        notif('Sin conexion a la base de datos. No se puede emitir la factura.', 'error');
+        return;
+      }
       // Validaciones
       if (estado.items.length === 0) { notif('Agrega productos antes de facturar', 'error'); return; }
+
+      // v13.3 RED DE SEGURIDAD: ningun renglon puede salir sin descripcion.
+      // La validacion principal esta en guardarEditProducto(), pero un producto
+      // cargado por CSV o por SQL directo no pasa por ahi. Una factura emitida
+      // no se corrige: mejor detenerla aqui.
+      const _sinDesc = estado.items.filter(it => !it.desc || !String(it.desc).trim());
+      if (_sinDesc.length > 0) {
+        notif('Hay ' + _sinDesc.length + ' renglón(es) sin descripción (' + _sinDesc.map(i => i.cod).join(', ') + '). Corrige el producto en Inventario antes de facturar.', 'error');
+        return;
+      }
 
       const clienteSel = estado.cliente;
       if (!clienteSel) { notif('Selecciona un cliente', 'error'); return; }
@@ -5866,28 +5973,10 @@ GEN-3401    5"
     // ═══════════════════════════════════════════════════════════════
     // DATOS DEMO (se sobreescriben con datos reales de Supabase)
     // ═══════════════════════════════════════════════════════════════
-    const PRODUCTOS = [
-      { cod_alt: "STH-7842", cod_orig: "K27-JD6420", cod_barras: "7591234001234", desc: "Turbo K27 John Deere 6420", marca: "STAHL", fob: 149.93, stock_vd: 3, stock_dist: 4, marca_modelo: "John Deere 6420, 6420S, 6520, Serie 6000", sistema: "Motor", precio_manual: null },
-      { cod_alt: "BAR-1245", cod_orig: "FH-2210", cod_barras: "7591234001241", desc: "Filtro hidráulico FH-2210", marca: "BARPELCA", fob: 7.32, stock_vd: 12, stock_dist: 18, marca_modelo: "John Deere, Case IH, New Holland - Tractores medianos", sistema: "Sistema hidráulico", precio_manual: null },
-      { cod_alt: "LON-0089", cod_orig: "A45-UNIV", cod_barras: "7591234001258", desc: "Asiento operador A45 universal", marca: "LONMAR", fob: 78.00, stock_vd: 1, stock_dist: 4, marca_modelo: "Universal - todos los tractores medianos y pesados", sistema: "Cabina", precio_manual: null },
-      { cod_alt: "GEN-3401", cod_orig: "EMP-4045T", cod_barras: "7591234001265", desc: "Empaquetadura cabezote 4045T", marca: "GENERAL", fob: 4.51, stock_vd: 24, stock_dist: 31, marca_modelo: "John Deere 5310, 5410, 5510 (motor 4045T)", sistema: "Motor", precio_manual: null },
-      { cod_alt: "PAN-0556", cod_orig: "PIN-25", cod_barras: "7591234001272", desc: "Pin de torre delantero 25mm", marca: "PANEGOSSI", fob: 2.85, stock_vd: 45, stock_dist: 67, marca_modelo: "Ford 5000, 6600, 7610 / Massey Ferguson 290, 390", sistema: "Tren delantero", precio_manual: null },
-      { cod_alt: "STH-2018", cod_orig: "EST-CIG", cod_barras: "7591234001289", desc: "Estopera trasera cigüeñal", marca: "STAHL", fob: 0.66, stock_vd: 120, stock_dist: 85, marca_modelo: "Motor Perkins 4.236 / Ford 5000 / Universal", sistema: "Estoperas", precio_manual: null },
-      { cod_alt: "LON-7733", cod_orig: "BJ-12501", cod_barras: "7591234001296", desc: "Buje bocina caja 12-501", marca: "LONMAR", fob: 12.40, stock_vd: 8, stock_dist: 15, marca_modelo: "John Deere SyncroPlus / SyncroShuttle", sistema: "Buje-bocina", precio_manual: null },
-      { cod_alt: "MP-9912", cod_orig: "DC-11EST", cod_barras: "7591234001302", desc: "Disco embrague 11 estrías", marca: "MASTER POWER", fob: 89.50, stock_vd: 2, stock_dist: 6, marca_modelo: "Massey Ferguson 290, 390, 1085", sistema: "Embrague", precio_manual: null },
-      { cod_alt: "BAR-3344", cod_orig: "BH-P11", cod_barras: "7591234001319", desc: "Bomba hidráulica P11", marca: "BARPELCA", fob: 212.30, stock_vd: 1, stock_dist: 2, marca_modelo: "New Holland TM120, TM135, TM150 / Case IH MX 110", sistema: "Sistema hidráulico", precio_manual: null },
-      { cod_alt: "GEN-1102", cod_orig: "MH-12", cod_barras: "7591234001326", desc: "Manguito hidráulico 1/2", marca: "GENERAL", fob: 1.85, stock_vd: 68, stock_dist: 94, marca_modelo: "Universal - implementos agrícolas", sistema: "Sistema hidráulico", precio_manual: null },
-      { cod_alt: "APC-4501", cod_orig: "COJ-RD", cod_barras: "7591234001333", desc: "Cojinete rueda delantera", marca: "APC", fob: 18.75, stock_vd: 6, stock_dist: 11, marca_modelo: "Ford 5000, 6600 / Massey Ferguson series 200 y 300", sistema: "Tren delantero", precio_manual: null },
-      { cod_alt: "MT-2289", cod_orig: "RET-5310", cod_barras: "7591234001340", desc: "Reten eje trasero 5310", marca: "MARIO TORRADO", fob: 3.20, stock_vd: 32, stock_dist: 40, marca_modelo: "John Deere 5310, 5410, 5510, 5610", sistema: "Estoperas", precio_manual: null },
-      { cod_alt: "STH-5566", cod_orig: "INY-6068", cod_barras: "7591234001357", desc: "Inyector completo 6068", marca: "STAHL", fob: 98.40, stock_vd: 4, stock_dist: 7, marca_modelo: "John Deere 6420, 6520, 6620 (motor 6068)", sistema: "Motor", precio_manual: null },
-      { cod_alt: "LON-0234", cod_orig: "SA-UNIV", cod_barras: "7591234001364", desc: "Soporte asiento universal", marca: "LONMAR", fob: 24.00, stock_vd: 9, stock_dist: 13, marca_modelo: "Universal - todos los tractores", sistema: "Cabina", precio_manual: null },
-      { cod_alt: "PAN-1188", cod_orig: "TOR-M16", cod_barras: "7591234001371", desc: "Tornillo M16 grado 12.9", marca: "PANEGOSSI", fob: 0.95, stock_vd: 200, stock_dist: 340, marca_modelo: "Universal - ferretería de implementos", sistema: "Buje-bocina", precio_manual: null },
-      { cod_alt: "GEN-7766", cod_orig: "FA-PA30", cod_barras: "7591234001388", desc: "Filtro aire primario PA-30", marca: "GENERAL", fob: 15.60, stock_vd: 7, stock_dist: 10, marca_modelo: "John Deere 6420, 6520 / Case IH MX series", sistema: "Filtros", precio_manual: null },
-      { cod_alt: "BAR-8821", cod_orig: "SH-80100", cod_barras: "7591234001395", desc: "Sello hidráulico 80x100", marca: "BARPELCA", fob: 5.81, stock_vd: 18, stock_dist: 22, marca_modelo: "Universal - cilindros hidráulicos 80mm", sistema: "Sistema hidráulico", precio_manual: null },
-      { cod_alt: "MP-4499", cod_orig: "PL-PRES", cod_barras: "7591234001401", desc: "Plato presión embrague", marca: "MASTER POWER", fob: 134.00, stock_vd: 2, stock_dist: 3, marca_modelo: "Massey Ferguson 290, 390 / Ford 6600", sistema: "Embrague", precio_manual: null },
-      { cod_alt: "STH-9001", cod_orig: "BI-COMP", cod_barras: "7591234001418", desc: "Bomba inyectora completa", marca: "STAHL", fob: 487.20, stock_vd: 1, stock_dist: 2, marca_modelo: "John Deere motor 6068 - tractores premium", sistema: "Motor", precio_manual: null },
-      { cod_alt: "APC-2233", cod_orig: "ROT-DH", cod_barras: "7591234001425", desc: "Rotula dirección hidráulica", marca: "APC", fob: 31.50, stock_vd: 5, stock_dist: 8, marca_modelo: "Ford 5000, 6600 / Massey Ferguson 290", sistema: "Tren delantero", precio_manual: null },
-    ];
+    // v13.2: el catalogo demo se elimino. PRODUCTOS se llena SOLO desde
+    // Supabase en cargarDatosSupabase(). Si esa carga falla, el array queda
+    // vacio a proposito: es preferible una pantalla vacia a un catalogo falso.
+    const PRODUCTOS = [];
 
     // Lista editable de sistemas de tractor
     let SISTEMAS = [
@@ -5896,53 +5985,10 @@ GEN-3401    5"
       "Eléctrico", "Cabina", "Filtros"
     ];
 
-    const CLIENTES = [
-      {
-        id: 1, nombre: "AGROPECUARIA EL TURPIAL C.A.", rif: "J-30245821-5", nivel: "T2", tipo: "credito", saldo_vd: 1850.00, saldo_dist: 1272.40, tel: "0414-7234521", empresa: "ambas",
-        contacto_principal: { nombre: "Carlos Rodríguez", cargo: "Jefe de compras", tel: "0414-7234521" },
-        contactos_adicionales: [
-          { nombre: "Pedro Pérez", cargo: "Almacenista", tel: "0426-5567812" },
-          { nombre: "José Martínez", cargo: "Gerente general", tel: "0212-7889921" }
-        ]
-      },
-      {
-        id: 2, nombre: "REPUESTOS LA PRIMAVERA C.A.", rif: "J-29845721-1", nivel: "T3", tipo: "credito", saldo_vd: 0, saldo_dist: 2150.00, tel: "0426-8845210", empresa: "dist",
-        contacto_principal: { nombre: "Luisa Hernández", cargo: "Dueña / Compras", tel: "0426-8845210" },
-        contactos_adicionales: [
-          { nombre: "Miguel Hernández", cargo: "Hijo / Vendedor", tel: "0412-3344521" }
-        ]
-      },
-      {
-        id: 3, nombre: "AGRICOLA SAN JOSE F.P.", rif: "J-08745212-3", nivel: "T1", tipo: "credito", saldo_vd: 1300.00, saldo_dist: 0, tel: "0412-3345877", empresa: "directa",
-        contacto_principal: { nombre: "Ramón Suárez", cargo: "Administrador", tel: "0412-3345877" },
-        contactos_adicionales: []
-      },
-      {
-        id: 4, nombre: "FERRETERIA INDUSTRIAL LARA C.A.", rif: "J-30556712-8", nivel: "T2", tipo: "credito", saldo_vd: 0, saldo_dist: 1840.00, tel: "0414-5567812", empresa: "dist",
-        contacto_principal: { nombre: "Ana Mendoza", cargo: "Compras", tel: "0414-5567812" },
-        contactos_adicionales: [
-          { nombre: "Roberto Mendoza", cargo: "Dueño", tel: "0414-8899221" }
-        ]
-      },
-      {
-        id: 5, nombre: "FINCA EL PALMAR", rif: "V-12456789-0", nivel: "Publico", tipo: "contado", saldo_vd: 0, saldo_dist: 0, tel: "0426-9912334", empresa: "directa",
-        contacto_principal: { nombre: "Juan García", cargo: "Productor", tel: "0426-9912334" },
-        contactos_adicionales: []
-      },
-      {
-        id: 6, nombre: "DISTRIBUIDORA AGRO SUR C.A.", rif: "J-31234567-2", nivel: "T3", tipo: "credito", saldo_vd: 0, saldo_dist: 4823.60, tel: "0412-7788995", empresa: "dist",
-        contacto_principal: { nombre: "Marcos Vargas", cargo: "Gerente de compras", tel: "0412-7788995" },
-        contactos_adicionales: [
-          { nombre: "Patricia Vargas", cargo: "Administradora", tel: "0414-2233445" },
-          { nombre: "Luis Pacheco", cargo: "Almacén", tel: "0426-9988776" }
-        ]
-      },
-      {
-        id: 7, nombre: "CONSUMIDOR FINAL", rif: "V-00000000-0", nivel: "Publico", tipo: "contado", saldo_vd: 0, saldo_dist: 0, tel: "", empresa: "ambas",
-        contacto_principal: { nombre: "—", cargo: "—", tel: "" },
-        contactos_adicionales: []
-      },
-    ];
+    // v13.2: los 7 clientes demo se eliminaron. CLIENTES se llena SOLO desde
+    // Supabase. Se podia facturar a "AGROPECUARIA EL TURPIAL C.A." (cliente_id 1),
+    // que no existe en la base real.
+    const CLIENTES = [];
 
     const FACTURAS_COBRAR = [];
 
@@ -5952,11 +5998,10 @@ GEN-3401    5"
     // La autenticación REAL la hace Supabase Auth + tabla `perfiles`. Las passwords
     // ya NO se guardan aquí — eso era inseguro. Si quieres cambiar passwords,
     // usa el dashboard de Supabase: Authentication > Users > (usuario) > Reset password.
+    // v13.2: se quitaron vendedor1/2/3@arj.local (filas huerfanas de la demo).
     const USUARIOS = {
-      'josehjimenezcas@gmail.com': { rol: "gerente", nombre: "Gerente", empresa: "ambas" },
-      'vendedor1@arj.local': { rol: "vendedor", nombre: "Vendedor 1", empresa: "directa" },
-      'vendedor2@arj.local': { rol: "vendedor", nombre: "Vendedor 2", empresa: "directa" },
-      'vendedor3@arj.local': { rol: "vendedor", nombre: "Vendedor 3", empresa: "dist" },
+      'josehjimenezcas@gmail.com': { rol: "gerente", nombre: "JJ", empresa: "ambas" },
+      'humbertoarj@gmail.com': { rol: "gerente", nombre: "HUMBERTO ARJ", empresa: "ambas" },
     };
 
     // ═══ PRESUPUESTOS DEMO (vigencia 45 días) ═══
@@ -5972,11 +6017,8 @@ GEN-3401    5"
     // Obligatorios: definidos por el gerente, todos los vendedores los ven
     let FAVORITOS_OBLIGATORIOS = [];
     // Personales: cada vendedor tiene sus propios (máx 12 entre obligatorios + personales)
-    let FAVORITOS_PERSONALES = {
-      "María": ["GEN-1102", "PAN-1188", "MT-2289"],
-      "Carlos": ["STH-7842", "MP-9912", "BAR-3344", "STH-5566"],
-      "Gerente": ["APC-4501", "LON-0234", "BAR-8821"]
-    };
+    // v13.2: se vaciaron los favoritos demo (apuntaban a codigos que ya no existen)
+    let FAVORITOS_PERSONALES = {};
 
     // ═══ TURNOS DEMO (Lote B) ═══
     let TURNOS = [];
@@ -5987,11 +6029,9 @@ GEN-3401    5"
     let filtroAlertasActual = 'todas';
 
     // ═══ LISTAS DE PRECIOS PERSONALIZADAS (Lote B) ═══
-    let LISTAS_PRECIOS = [
-      { nombre: "Familiar", desc: "Para familiares y empleados ARJ", descuento: 30, tipo: "descuento", clientes: 0 },
-      { nombre: "VIP Plata", desc: "Clientes con +50 compras al año", descuento: 25, tipo: "descuento", clientes: 3 },
-      { nombre: "Precio Costo", desc: "Solo casos excepcionales aprobados por gerente", descuento: 0, tipo: "costo", clientes: 1 },
-    ];
+    // v13.2: listas demo eliminadas. Pendiente definir la jerarquia contra los
+    // tiers T1/T2/T3 antes de construir este modulo.
+    let LISTAS_PRECIOS = [];
     let BITACORA = [];
     // ═══════════════════════════════════════════════════════════════
     // ESTADO
@@ -6484,8 +6524,10 @@ GEN-3401    5"
         notif('✓ Conectado · ' + PRODUCTOS.length + ' productos · ' + CLIENTES.length + ' clientes', 'success');
         setTimeout(() => notif(verboBienv + ', ' + perfil.nombre_display + ' · ' + nombreEmpresa(estado.empresa), 'success'), 2500);
       } else {
-        notif('⚠ Sin conexión a Supabase. Usando datos locales.', 'error');
-        setTimeout(() => notif(verboBienv + ', ' + perfil.nombre_display + ' · ' + nombreEmpresa(estado.empresa) + ' (modo offline)', 'warning'), 2500);
+        // v13.2: ya no hay "datos locales" que usar. Si la carga fallo, los
+        // arrays estan vacios a proposito y facturar esta bloqueado.
+        notif('⚠ SIN CONEXION. No se puede facturar. Revisa el internet y recarga (Ctrl+Shift+R).', 'error');
+        setTimeout(() => notif('Sistema en solo lectura — sin datos cargados', 'error'), 2500);
       }
     }
 
@@ -7536,7 +7578,7 @@ GEN-3401    5"
         <div style="font-weight:600;color:var(--navy);font-size:13px">${cp.nombre} <span style="background:var(--navy);color:#FFF;padding:1px 6px;border-radius:8px;font-size:10px;margin-left:4px">PRINCIPAL</span></div>
         <div style="font-size:11.5px;color:var(--dgray)">${cp.cargo} · <i class="ti ti-phone"></i> ${cp.tel || 'sin teléfono'}</div>
       </div>
-      <button class="btn btn-secondary btn-sm" onclick="notif('Demo: editar contacto principal','warning')"><i class="ti ti-edit"></i></button>
+
     </div>
   </div>`;
       (c.contactos_adicionales || []).forEach(ca => {
@@ -7546,7 +7588,7 @@ GEN-3401    5"
           <div style="font-weight:600;color:var(--navy);font-size:13px">${ca.nombre}</div>
           <div style="font-size:11.5px;color:var(--dgray)">${ca.cargo} · <i class="ti ti-phone"></i> ${ca.tel || 'sin teléfono'}</div>
         </div>
-        <button class="btn btn-secondary btn-sm" onclick="notif('Demo: editar contacto','warning')"><i class="ti ti-edit"></i></button>
+
       </div>
     </div>`;
       });
@@ -7594,8 +7636,75 @@ GEN-3401    5"
       document.getElementById('modal-cliente').classList.remove('show');
     }
 
-    function agregarContactoDemo() {
-      notif('Demo: aquí abriría formulario para agregar nuevo contacto', 'warning');
+    // v13.3: agregar contacto de verdad. Escribe en contactos_cliente y refresca
+    // la ficha sin recargar toda la data.
+    function agregarContactoDemo() { abrirNuevoContacto(); }
+
+    function abrirNuevoContacto() {
+      if (!_clienteModalAbierto) { notif('Abre primero la ficha de un cliente', 'error'); return; }
+      document.getElementById('nc-cliente-nombre').textContent = _clienteModalAbierto.nombre;
+      document.getElementById('nc-nombre').value = '';
+      document.getElementById('nc-cargo').value = '';
+      document.getElementById('nc-tel').value = '';
+      document.getElementById('nc-principal').checked = false;
+      document.getElementById('modal-nuevo-contacto').classList.add('show');
+      setTimeout(() => document.getElementById('nc-nombre').focus(), 100);
+    }
+    function cerrarNuevoContacto() {
+      document.getElementById('modal-nuevo-contacto').classList.remove('show');
+    }
+
+    async function guardarNuevoContacto() {
+      const c = _clienteModalAbierto;
+      if (!c) { notif('No hay cliente abierto', 'error'); return; }
+      if (!_sb || !_supabaseConectado) { notif('Sin conexión: no se puede guardar', 'error'); return; }
+      const nombre = (document.getElementById('nc-nombre').value || '').trim();
+      const cargo = (document.getElementById('nc-cargo').value || '').trim();
+      const tel = (document.getElementById('nc-tel').value || '').trim();
+      const esPrincipal = document.getElementById('nc-principal').checked;
+      if (!nombre) { notif('El nombre del contacto es obligatorio', 'error'); return; }
+      if (!c.id) { notif('Este cliente todavía no está guardado en la base', 'error'); return; }
+
+      const btn = document.getElementById('nc-guardar');
+      if (btn) { btn.disabled = true; btn.textContent = 'Guardando...'; }
+
+      // Si este pasa a ser el principal, los demas dejan de serlo. Sin esto la
+      // ficha muestra dos principales y la carga inicial elige uno al azar.
+      if (esPrincipal) {
+        const { error: eDes } = await _sb.from('contactos_cliente')
+          .update({ es_principal: false }).eq('cliente_id', c.id);
+        if (eDes) console.error('[ARJ] Error quitando principal previo:', eDes);
+      }
+
+      const { error } = await _sb.from('contactos_cliente').insert({
+        cliente_id: c.id, nombre, cargo, telefono: tel, es_principal: esPrincipal
+      });
+
+      if (btn) { btn.disabled = false; btn.textContent = 'Guardar contacto'; }
+
+      if (error) {
+        console.error('[ARJ] Error insertando contacto:', error);
+        notif('Error guardando el contacto', 'error');
+        return;
+      }
+
+      // Refresca el objeto en memoria para que la ficha muestre el cambio ya.
+      if (esPrincipal) {
+        if (c.contacto_principal && c.contacto_principal.nombre && c.contacto_principal.nombre !== '—') {
+          c.contactos_adicionales = c.contactos_adicionales || [];
+          c.contactos_adicionales.push({ ...c.contacto_principal });
+        }
+        c.contacto_principal = { nombre, cargo, tel };
+      } else {
+        c.contactos_adicionales = c.contactos_adicionales || [];
+        c.contactos_adicionales.push({ nombre, cargo, tel });
+      }
+
+      cerrarNuevoContacto();
+      cerrarModalCliente();
+      abrirModalCliente(c.id);
+      logBitacora('cliente', `Agregó contacto ${nombre} a ${c.nombre}`, false);
+      notif('Contacto agregado', 'success');
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -7706,9 +7815,27 @@ GEN-3401    5"
         if (PRODUCTOS.find(p => p.cod_alt === codAlt)) { notif('Ya existe un producto con ese código alternativo', 'error'); return; }
         prodEditando.cod_alt = codAlt;
       }
+      // v13.3: la descripcion es obligatoria. Un producto sin descripcion sale
+      // con el renglon EN BLANCO en la factura del cliente, y la factura queda
+      // congelada asi. Paso el 11 ago con el codigo 5191547-2.
+      // Va aqui (funcion que guarda) y no como `required` en el input: un
+      // `required` se salta si el campo se llena por codigo o si el navegador
+      // no lo respeta.
+      const _desc = (document.getElementById('ep-desc').value || '').trim();
+      if (!_desc) { notif('La descripción del producto es obligatoria', 'error'); return; }
+      if (_desc.length < 4) { notif('La descripción es muy corta para identificar el producto', 'error'); return; }
+
+      // El origen tiene su propio campo desde v13.1. Escribirlo tambien en la
+      // descripcion ensucia la factura del cliente ("DISTRIBUIDOR LOCAL ROTULA
+      // DE GATO..."). Se avisa una vez y se deja continuar: puede haber un
+      // producto que de verdad se llame asi.
+      if (/^\s*(DISTRIBUIDOR|LOCAL|IMPORTADO)\b/i.test(_desc)) {
+        if (!confirm('La descripción empieza con "' + _desc.split(/\s+/)[0] + '".\n\nEl origen ya tiene su propio campo — ese prefijo va a salir impreso en la factura del cliente.\n\n¿Guardar así de todos modos?')) return;
+      }
+
       prodEditando.cod_orig = document.getElementById('ep-cod-orig').value;
       prodEditando.cod_barras = nuevoBarras;
-      prodEditando.desc = document.getElementById('ep-desc').value;
+      prodEditando.desc = _desc;
       prodEditando.marca = document.getElementById('ep-marca').value;
       prodEditando.marca_modelo = document.getElementById('ep-marca-modelo').value;
       prodEditando.sistema = document.getElementById('ep-sistema').value;
@@ -7835,18 +7962,76 @@ GEN-3401    5"
     // ═══════════════════════════════════════════════════════════════
     // METAS DE VENTA
     // ═══════════════════════════════════════════════════════════════
-    let metas = { empresa_directa: 30000, empresa_dist: 50000, vendedores: {} };
+    // v13.2 EQUIPO: lista de trabajadores a los que se les pone meta.
+    // NO son usuarios del sistema. Un trabajador puede tener meta sin poder
+    // entrar a facturar (ej: un vendedor de mostrador que reporta al gerente).
+    // Crear un usuario que ENTRE al sistema se hace en Supabase > Authentication.
+    // Formato: [{ nombre:'HUMBERTO ARJ', empresa:'ambas'|'directa'|'dist' }]
+    let EQUIPO = [];
+
+    // v13.2 METAS POR PERIODO: mismo criterio que costos_fijos_hist. Un solo
+    // numero de meta reescribiria el pasado — al subir la meta en diciembre,
+    // agosto pasaria de "cumplida" a "no cumplida" sola.
+    // Formato: { '2026-08': { directa:5000, dist:3000, vendedores:{'JJ':2000} } }
+    let METAS_HIST = {};
+    let metasPeriodo = null; // periodo que se esta viendo; null = mes actual
+
     let ventasMesActual = { directa: 0, dist: 0, vendedores: {} };
+
+    // Devuelve (creandolo si hace falta) el bloque de metas de un periodo.
+    function metasDe(per) {
+      if (!METAS_HIST[per]) METAS_HIST[per] = { directa: 0, dist: 0, vendedores: {} };
+      const m = METAS_HIST[per];
+      if (typeof m.directa !== 'number') m.directa = 0;
+      if (typeof m.dist !== 'number') m.dist = 0;
+      if (!m.vendedores || typeof m.vendedores !== 'object') m.vendedores = {};
+      return m;
+    }
+    function metasPeriodoActivo() { return metasPeriodo || periodoDe(new Date()); }
     function renderMetas() {
       const cont = document.getElementById('metas-content');
       if (!cont) return;
-      const metaEmpresa = estado.empresa === 'directa' ? metas.empresa_directa : metas.empresa_dist;
+
+      const per = metasPeriodoActivo();
+      const perActual = periodoDe(new Date());
+      const esMesCerrado = per !== perActual;
+      const M = metasDe(per);
+
+      const metaEmpresa = estado.empresa === 'directa' ? M.directa : M.dist;
       const ventasEmpresa = estado.empresa === 'directa' ? ventasMesActual.directa : ventasMesActual.dist;
-      const nombreEmp = estado.empresa === 'directa' ? 'Venta Directa' : 'Distribuidora';
+      const nombreEmp = nombreEmpresa(estado.empresa);
       const pctEmp = metaEmpresa > 0 ? Math.min(100, (ventasEmpresa / metaEmpresa) * 100) : 0;
       const faltaEmp = Math.max(0, metaEmpresa - ventasEmpresa);
 
+      // Base REAL para sugerir: lo vendido el mes anterior en esta empresa.
+      // Antes las sugerencias se calculaban sobre la meta misma, asi que cada
+      // clic la inflaba y el numero no salia de ningun dato.
+      const baseSug = ventasMesAnteriorEmpresa();
+
+      // opciones del selector de periodo: los que tienen meta + los ultimos 6 meses
+      const setPer = new Set(Object.keys(METAS_HIST));
+      const hoyP = new Date();
+      for (let k = 0; k < 6; k++) setPer.add(periodoDe(new Date(hoyP.getFullYear(), hoyP.getMonth() - k, 1)));
+      const opciones = [...setPer].sort().reverse()
+        .map(x => `<option value="${x}" ${x === per ? 'selected' : ''}>${etiquetaPeriodo(x)}</option>`).join('');
+
       let html = `
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:8px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:6px">
+      <span style="font-size:11.5px;color:var(--dgray)">Período:</span>
+      <select class="val-input" id="metas-periodo" onchange="cambiarPeriodoMetas(this.value)" style="width:150px">${opciones}</select>
+      ${esMesCerrado ? '<span style="background:#FFF8E1;color:#5D4037;padding:2px 8px;border-radius:8px;font-size:10.5px;font-weight:600">MES CERRADO</span>' : ''}
+    </div>
+    <button class="btn btn-secondary btn-sm" onclick="abrirModalEquipo()"><i class="ti ti-users-plus"></i> Gestionar equipo</button>
+  </div>`;
+
+      if (esMesCerrado) {
+        html += `<div style="background:#FFF8E1;border-left:3px solid var(--gold);border-radius:6px;padding:8px 12px;margin-bottom:10px;font-size:11.5px;color:#5D4037">
+      <i class="ti ti-info-circle"></i> Estás viendo un mes distinto al actual. Las barras de "vendido" siempre muestran el <strong>mes en curso</strong>; solo la meta cambia de período.
+    </div>`;
+      }
+
+      html += `
   <div style="background:#FFF;border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:12px">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
       <div>
@@ -7855,45 +8040,70 @@ GEN-3401    5"
       </div>
       <div style="display:flex;align-items:center;gap:6px">
         <span style="font-size:11.5px;color:var(--dgray)">Meta:</span>
-        <input type="number" class="val-input" id="meta-emp-input" value="${metaEmpresa}" step="500" onchange="actualizarMetaEmpresa(this.value)" style="width:110px">
+        <input type="number" class="val-input" id="meta-emp-input" value="${metaEmpresa}" step="500" min="0" onchange="actualizarMetaEmpresa(this.value)" style="width:110px">
       </div>
     </div>
     <div style="background:var(--gray);border-radius:5px;height:24px;position:relative;overflow:hidden">
-      <div style="position:absolute;inset:0;background:linear-gradient(90deg,var(--green),#4CAF50);width:${pctEmp}%;transition:width 0.4s;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;color:#FFF;font-size:11px;font-weight:600">${pctEmp.toFixed(1)}%</div>
+      <div style="position:absolute;inset:0;background:linear-gradient(90deg,var(--green),#4CAF50);width:${pctEmp}%;transition:width 0.4s;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;color:#FFF;font-size:11px;font-weight:600">${pctEmp > 8 ? pctEmp.toFixed(1) + '%' : ''}</div>
     </div>
     <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:11.5px">
       <span style="color:var(--green);font-weight:600">Vendido: ${fmtUSD(ventasEmpresa)}</span>
       <span style="color:var(--dgray)">Falta: <strong style="color:${faltaEmp > 0 ? 'var(--gold)' : 'var(--green)'}">${fmtUSD(faltaEmp)}</strong></span>
-    </div>
-    <div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);font-size:11px;color:var(--dgray)">
-      <i class="ti ti-bulb"></i> Sugerencias de meta basada en mes anterior:
-      <button class="btn btn-secondary btn-sm" style="padding:2px 6px;font-size:10px;margin:2px" onclick="sugerirMeta('emp','conservadora')">Conservadora: ${fmtUSD(metaEmpresa * 0.9)}</button>
-      <button class="btn btn-secondary btn-sm" style="padding:2px 6px;font-size:10px;margin:2px" onclick="sugerirMeta('emp','moderada')">Moderada: ${fmtUSD(metaEmpresa * 1.1)}</button>
-      <button class="btn btn-secondary btn-sm" style="padding:2px 6px;font-size:10px;margin:2px" onclick="sugerirMeta('emp','agresiva')">Agresiva: ${fmtUSD(metaEmpresa * 1.3)}</button>
-    </div>
-  </div>
-  <div style="background:#FFF;border:1px solid var(--border);border-radius:10px;padding:14px 16px">
-    <div style="font-size:11px;color:var(--dgray);text-transform:uppercase;letter-spacing:.04em;font-weight:500;margin-bottom:10px">Metas por vendedor</div>`;
+    </div>`;
 
-      // Un vendedor aparece si tiene meta puesta O si vendió algo este mes.
-      // Antes había que definir la meta primero, y como no existía botón para
-      // eso, la lista quedaba vacía para siempre.
-      const listaVend = [...new Set(
-        Object.keys(metas.vendedores).concat(Object.keys(ventasMesActual.vendedores))
-      )].sort();
+      if (baseSug > 0) {
+        html += `<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);font-size:11px;color:var(--dgray)">
+      <i class="ti ti-bulb"></i> Sugerencias sobre el mes anterior (${fmtUSD(baseSug)}):
+      <button class="btn btn-secondary btn-sm" style="padding:2px 6px;font-size:10px;margin:2px" onclick="sugerirMeta('conservadora')">Conservadora: ${fmtUSD(Math.round(baseSug * 0.9 / 100) * 100)}</button>
+      <button class="btn btn-secondary btn-sm" style="padding:2px 6px;font-size:10px;margin:2px" onclick="sugerirMeta('moderada')">Moderada: ${fmtUSD(Math.round(baseSug * 1.1 / 100) * 100)}</button>
+      <button class="btn btn-secondary btn-sm" style="padding:2px 6px;font-size:10px;margin:2px" onclick="sugerirMeta('agresiva')">Agresiva: ${fmtUSD(Math.round(baseSug * 1.3 / 100) * 100)}</button>
+    </div>`;
+      } else {
+        html += `<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--border);font-size:11px;color:var(--dgray)">
+      <i class="ti ti-bulb"></i> Las sugerencias aparecen cuando haya ventas del mes anterior con qué compararse.
+    </div>`;
+      }
+      html += `</div>`;
 
-      if (listaVend.length === 0) html += '<div style="padding:14px;text-align:center;color:var(--dgray);font-size:12px">Nadie ha facturado todavía este mes en esta empresa</div>';
+      // ── Metas por trabajador ──
+      html += `<div style="background:#FFF;border:1px solid var(--border);border-radius:10px;padding:14px 16px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <div style="font-size:11px;color:var(--dgray);text-transform:uppercase;letter-spacing:.04em;font-weight:500">Metas por trabajador</div>
+      <button class="btn btn-secondary btn-sm" style="font-size:10.5px" onclick="abrirModalEquipo()"><i class="ti ti-plus"></i> Agregar</button>
+    </div>`;
 
-      listaVend.forEach(v => {
-        const meta = parseFloat(metas.vendedores[v]) || 0;
+      // Quien aparece: el equipo asignado a esta empresa + cualquiera que haya
+      // facturado (aunque no este en el equipo, para no esconder ventas reales).
+      const delEquipo = EQUIPO
+        .filter(t => t.empresa === 'ambas' || t.empresa === estado.empresa)
+        .map(t => t.nombre);
+      const lista = [...new Set(delEquipo.concat(Object.keys(ventasMesActual.vendedores)))].sort();
+
+      if (lista.length === 0) {
+        html += `<div style="padding:18px;text-align:center;color:var(--dgray);font-size:12px">
+      Todavía no hay trabajadores en <strong>${nombreEmp}</strong>.<br>
+      <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="abrirModalEquipo()"><i class="ti ti-user-plus"></i> Agregar el primero</button>
+    </div>`;
+      }
+
+      const sumaMetas = lista.reduce((a, v) => a + (parseFloat(M.vendedores[v]) || 0), 0);
+
+      lista.forEach(v => {
+        const meta = parseFloat(M.vendedores[v]) || 0;
         const vendido = ventasMesActual.vendedores[v] || 0;
         const pct = meta > 0 ? Math.min(100, (vendido / meta) * 100) : 0;
         const falta = Math.max(0, meta - vendido);
-        const cumplido = meta > 0 && pct >= 100;
+        const cumplido = meta > 0 && vendido >= meta;
+        const enEquipo = delEquipo.includes(v);
         html += `<div style="margin-bottom:10px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-        <div style="display:flex;align-items:center;gap:6px"><i class="ti ti-user" style="color:var(--blue)"></i><span style="font-weight:600;font-size:12.5px">${v}</span>${cumplido ? '<span style="background:var(--lgreen);color:var(--green);padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600">✓ CUMPLIDA</span>' : ''}</div>
-        <input type="number" value="${meta}" step="500" onchange="actualizarMetaVendedor('${v}',this.value)" class="val-input" style="width:90px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;gap:8px">
+        <div style="display:flex;align-items:center;gap:6px;min-width:0">
+          <i class="ti ti-user" style="color:var(--blue);flex-shrink:0"></i>
+          <span style="font-weight:600;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v}</span>
+          ${cumplido ? '<span style="background:var(--lgreen);color:var(--green);padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;flex-shrink:0">✓ CUMPLIDA</span>' : ''}
+          ${!enEquipo ? '<span style="background:#FFF8E1;color:#5D4037;padding:1px 6px;border-radius:8px;font-size:10px;font-weight:600;flex-shrink:0" title="Facturó pero no está en la lista de equipo">FUERA DEL EQUIPO</span>' : ''}
+        </div>
+        <input type="number" value="${meta}" step="500" min="0" onchange="actualizarMetaVendedor('${v.replace(/'/g, "\\'")}',this.value)" class="val-input" style="width:90px;flex-shrink:0">
       </div>
       <div style="background:var(--gray);border-radius:4px;height:14px;overflow:hidden">
         <div style="background:${cumplido ? 'linear-gradient(90deg,var(--green),#4CAF50)' : 'linear-gradient(90deg,var(--blue),var(--navy))'};height:100%;width:${pct}%;transition:width 0.4s"></div>
@@ -7905,37 +8115,151 @@ GEN-3401    5"
     </div>`;
       });
 
+      // Aviso si la suma de metas individuales no cuadra con la meta de empresa.
+      // Si la suma es menor, el equipo puede cumplir al 100% y la empresa fallar.
+      if (lista.length > 0 && metaEmpresa > 0 && sumaMetas > 0) {
+        const dif = sumaMetas - metaEmpresa;
+        const pctDif = Math.abs(dif) / metaEmpresa * 100;
+        if (pctDif >= 5) {
+          const corta = dif < 0;
+          html += `<div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--border);font-size:11.5px;color:${corta ? '#5D4037' : 'var(--dgray)'};background:${corta ? '#FFF8E1' : 'transparent'};border-radius:6px;padding:8px 10px">
+      <i class="ti ti-${corta ? 'alert-triangle' : 'info-circle'}"></i>
+      La suma de las metas individuales es <strong>${fmtUSD(sumaMetas)}</strong> contra ${fmtUSD(metaEmpresa)} de la empresa.
+      ${corta ? 'Aunque <strong>todos cumplan</strong>, la empresa se queda ' + fmtUSD(Math.abs(dif)) + ' corta.' : 'Hay ' + fmtUSD(dif) + ' de colchón.'}
+    </div>`;
+        }
+      }
+
       html += `</div>`;
       cont.innerHTML = html;
     }
 
-    function actualizarMetaEmpresa(v) {
-      const m = parseFloat(v) || 0;
-      if (estado.empresa === 'directa') metas.empresa_directa = m;
-      else metas.empresa_dist = m;
+    // Ventas del mes ANTERIOR en la empresa activa — base real para sugerir meta
+    function ventasMesAnteriorEmpresa() {
+      const hoy = new Date();
+      const ini = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
+      const fin = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+      let tot = 0;
+      (TODAS_FACTURAS || []).forEach(f => {
+        if (f.estado === 'anulada' || !f.fecha_raw) return;
+        if (f.empresa !== estado.empresa) return;
+        const d = new Date(f.fecha_raw);
+        if (d >= ini && d < fin) tot += (f.total || 0);
+      });
+      return tot;
+    }
+
+    function etiquetaPeriodo(per) {
+      const [a, m] = per.split('-');
+      const meses = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+      return (meses[parseInt(m, 10) - 1] || m) + ' ' + a;
+    }
+
+    function cambiarPeriodoMetas(per) {
+      metasPeriodo = per;
       renderMetas();
-      guardarDatos();
+    }
+
+    function actualizarMetaEmpresa(v) {
+      const m = Math.max(0, parseFloat(v) || 0);
+      const M = metasDe(metasPeriodoActivo());
+      if (estado.empresa === 'directa') M.directa = m; else M.dist = m;
+      renderMetas();
+      guardarMetasSupabase();
       notif('Meta de empresa actualizada', 'success');
     }
 
     function actualizarMetaVendedor(v, val) {
-      metas.vendedores[v] = parseFloat(val) || 0;
+      const M = metasDe(metasPeriodoActivo());
+      const m = Math.max(0, parseFloat(val) || 0);
+      if (m === 0) delete M.vendedores[v]; else M.vendedores[v] = m;
       renderMetas();
-      guardarDatos();
+      guardarMetasSupabase();
       notif(`Meta de ${v} actualizada`, 'success');
     }
 
-    function sugerirMeta(tipo, modalidad) {
-      const actual = estado.empresa === 'directa' ? metas.empresa_directa : metas.empresa_dist;
-      let nueva;
-      if (modalidad === 'conservadora') nueva = actual * 0.9;
-      else if (modalidad === 'moderada') nueva = actual * 1.1;
-      else nueva = actual * 1.3;
-      nueva = Math.round(nueva / 100) * 100;
-      if (estado.empresa === 'directa') metas.empresa_directa = nueva;
-      else metas.empresa_dist = nueva;
+    function sugerirMeta(modalidad) {
+      const base = ventasMesAnteriorEmpresa();
+      if (base <= 0) { notif('No hay ventas del mes anterior para calcular la sugerencia', 'error'); return; }
+      const factor = modalidad === 'conservadora' ? 0.9 : modalidad === 'moderada' ? 1.1 : 1.3;
+      const nueva = Math.round(base * factor / 100) * 100;
+      const M = metasDe(metasPeriodoActivo());
+      if (estado.empresa === 'directa') M.directa = nueva; else M.dist = nueva;
       renderMetas();
+      guardarMetasSupabase();
       notif(`Meta ajustada a ${fmtUSD(nueva)} (${modalidad})`, 'success');
+    }
+
+    // ═══ EQUIPO DE TRABAJO ═══
+    function abrirModalEquipo() {
+      if (estado.rol !== 'gerente') { notif('Solo el gerente puede gestionar el equipo', 'error'); return; }
+      renderListaEquipo();
+      document.getElementById('eq-nombre').value = '';
+      document.getElementById('eq-empresa').value = estado.empresa;
+      document.getElementById('modal-equipo').classList.add('show');
+    }
+    function cerrarModalEquipo() {
+      document.getElementById('modal-equipo').classList.remove('show');
+    }
+
+    function renderListaEquipo() {
+      const cont = document.getElementById('eq-lista');
+      if (!cont) return;
+      if (EQUIPO.length === 0) {
+        cont.innerHTML = '<div style="padding:16px;text-align:center;color:var(--dgray);font-size:12px">Todavía no hay nadie en el equipo</div>';
+        return;
+      }
+      const etq = { ambas: 'Ambas', directa: 'Venta Directa', dist: 'Distribuidora' };
+      cont.innerHTML = EQUIPO.map((t, i) => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-bottom:1px solid var(--border);gap:8px">
+      <div style="min-width:0">
+        <div style="font-weight:600;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${t.nombre}</div>
+        <div style="font-size:10.5px;color:var(--dgray)">${etq[t.empresa] || t.empresa}</div>
+      </div>
+      <button class="btn btn-red btn-sm" onclick="quitarDelEquipo(${i})" title="Quitar del equipo"><i class="ti ti-trash"></i></button>
+    </div>`).join('');
+    }
+
+    async function agregarAlEquipo() {
+      const inp = document.getElementById('eq-nombre');
+      const nombre = (inp.value || '').trim().toUpperCase();
+      const empresa = document.getElementById('eq-empresa').value;
+      if (!nombre) { notif('Escribe el nombre del trabajador', 'error'); return; }
+      if (nombre.length < 3) { notif('El nombre es muy corto', 'error'); return; }
+      if (EQUIPO.some(t => t.nombre === nombre)) { notif('Ese trabajador ya está en la lista', 'error'); return; }
+      EQUIPO.push({ nombre, empresa });
+      inp.value = '';
+      renderListaEquipo();
+      renderMetas();
+      await guardarEquipoSupabase();
+      logBitacora('config', `Agregó a ${nombre} al equipo (${empresa})`, false);
+      notif(`${nombre} agregado al equipo`, 'success');
+    }
+
+    async function quitarDelEquipo(i) {
+      const t = EQUIPO[i];
+      if (!t) return;
+      // Solo se saca de la LISTA. Las metas historicas y las facturas que emitio
+      // NO se tocan: si vendio, va a seguir apareciendo marcado "fuera del equipo".
+      if (!confirm(`¿Quitar a ${t.nombre} del equipo?\n\nSus ventas y metas anteriores NO se borran.`)) return;
+      EQUIPO.splice(i, 1);
+      renderListaEquipo();
+      renderMetas();
+      await guardarEquipoSupabase();
+      logBitacora('config', `Quitó a ${t.nombre} del equipo`, false);
+      notif(`${t.nombre} quitado del equipo`, 'warning');
+    }
+
+    async function guardarEquipoSupabase() {
+      if (!_sb || !_supabaseConectado) { notif('Sin conexión: el cambio no se guardó', 'error'); return; }
+      const { error } = await _sb.from('configuracion').update({ equipo: EQUIPO }).neq('id', 0);
+      if (error) { console.error('[ARJ] guardarEquipo:', error); notif('Error guardando el equipo', 'error'); }
+    }
+
+    async function guardarMetasSupabase() {
+      if (!_sb || !_supabaseConectado) { notif('Sin conexión: la meta no se guardó', 'error'); return; }
+      const { error } = await _sb.from('configuracion').update({ metas_hist: METAS_HIST }).neq('id', 0);
+      if (error) { console.error('[ARJ] guardarMetas:', error); notif('Error guardando la meta', 'error'); }
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -7946,6 +8270,15 @@ GEN-3401    5"
       const fecha = ahora.toLocaleDateString('es-VE', { day: '2-digit', month: 'short' }) + ' ' + ahora.toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' });
       BITACORA.unshift({ fecha, usuario: estado.usuario || 'Sistema', accion, desc, critico, empresa: estado.empresa || 'directa' });
       guardarDatos();
+    }
+
+    // v13.2: la bitacora se descarga de verdad (antes era un aviso "Demo:")
+    function descargarBitacoraCSV() {
+      if (!BITACORA.length) { notif('No hay actividad registrada', 'error'); return; }
+      const filas = [['Fecha', 'Usuario', 'Empresa', 'Accion', 'Descripcion', 'Critico']];
+      BITACORA.forEach(b => filas.push([b.fecha, b.usuario, b.empresa, b.accion, b.desc, b.critico ? 'SI' : 'no']));
+      _descargarCSV('ARJ_bitacora_' + _hoyArchivo() + '.csv', filas);
+      notif(BITACORA.length + ' registros descargados', 'success');
     }
 
     function renderBitacora() {
@@ -8411,7 +8744,7 @@ GEN-3401    5"
         <div style="text-align:right">
           <div style="font-weight:700;color:var(--navy);font-size:16px">${fmtUSD(a.total)}</div>
           <div style="display:flex;gap:4px;margin-top:8px">
-            <button class="btn btn-secondary btn-sm" onclick="notif('Demo: extender apartado 24h más','warning')" title="Extender"><i class="ti ti-clock-plus"></i></button>
+
             <button class="btn btn-green btn-sm" onclick="convertirApartado('${a.num}')" title="Convertir a factura"><i class="ti ti-file-invoice"></i></button>
             <button class="btn btn-red btn-sm" onclick="liberarApartado('${a.num}')" title="Liberar stock"><i class="ti ti-x"></i></button>
           </div>
@@ -9096,49 +9429,89 @@ GEN-3401    5"
     }
 
     // ─── RANKING DE CLIENTES ───
+    // ═══ RANKING DE CLIENTES — DATOS REALES (v13.2) ═══
+    // Lee de TODAS_FACTURAS, que ya viene de Supabase. NO hace consulta nueva.
+    // Filtra por la empresa activa: mezclar Venta Directa con Distribuidora
+    // daria un top falso, porque son dos negocios con precios distintos.
     function renderRanking() {
       const cont = document.getElementById('ranking-content');
       if (!cont) return;
-      cont.innerHTML = '<div style="padding:20px;text-align:center;color:var(--dgray);font-size:13px">Sin ventas registradas todavía</div>';
-      return;
-      const topCompradores = [
-        { nombre: "DISTRIBUIDORA AGRO SUR C.A.", total: 18420, compras: 14, ultima: "hace 3 días" },
-        { nombre: "AGROPECUARIA EL TURPIAL C.A.", total: 12850, compras: 22, ultima: "hace 1 día" },
-        { nombre: "FERRETERIA INDUSTRIAL LARA C.A.", total: 9340, compras: 11, ultima: "hace 5 días" },
-        { nombre: "AGRICOLA SAN JOSE F.P.", total: 6780, compras: 9, ultima: "hace 2 días" },
-        { nombre: "FINCA EL PALMAR", total: 3210, compras: 6, ultima: "hace 8 días" },
-      ];
-      const inactivos = [
-        { nombre: "REPUESTOS LA PRIMAVERA C.A.", dias: 38, promedio: "cada 12 días", ultima: "$2.150" },
-        { nombre: "AGRO INVERSIONES C.A.", dias: 52, promedio: "cada 20 días", ultima: "$890" },
-      ];
-      const maxTotal = topCompradores[0].total;
-      cont.innerHTML = `
-    <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:16px">
-      <div>
-        <h3 style="font-size:13px;color:var(--navy);font-weight:600;margin-bottom:10px"><i class="ti ti-trophy" style="color:var(--gold)"></i> Top 5 compradores del mes</h3>
-        ${topCompradores.map((c, i) => {
-        const medallas = ['🥇', '🥈', '🥉', '4', '5'];
-        const pct = (c.total / maxTotal * 100).toFixed(0);
-        return `<div style="margin-bottom:10px">
+
+      const hoy = new Date();
+      const mes0 = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+
+      // acumulador: por cliente, del mes y de siempre
+      const porCliente = {};
+      (TODAS_FACTURAS || []).forEach(f => {
+        if (f.estado === 'anulada' || !f.fecha_raw) return;
+        if (f.empresa !== estado.empresa) return;
+        const nom = f.cliente_nombre_snap || f.cliente || 'Sin cliente';
+        if (!porCliente[nom]) porCliente[nom] = { nombre: nom, mes: 0, comprasMes: 0, ultima: null, totalHist: 0, comprasHist: 0 };
+        const c = porCliente[nom];
+        const fch = new Date(f.fecha_raw);
+        const t = f.total || 0;
+        c.totalHist += t; c.comprasHist++;
+        if (!c.ultima || fch > c.ultima) c.ultima = fch;
+        if (fch >= mes0) { c.mes += t; c.comprasMes++; }
+      });
+
+      const todos = Object.values(porCliente);
+      const top = todos.filter(c => c.mes > 0).sort((a, b) => b.mes - a.mes).slice(0, 5);
+
+      // "Dejo de comprar" = compro al menos 2 veces (para tener un patron) y
+      // lleva mas dias sin comprar que el DOBLE de su frecuencia habitual.
+      // Un cliente que compra cada 60 dias no esta perdido a los 31 dias.
+      const dormidos = todos.filter(c => {
+        if (c.comprasHist < 2 || !c.ultima) return false;
+        const dias = Math.floor((hoy - c.ultima) / 86400000);
+        return dias >= 30;
+      }).map(c => {
+        const dias = Math.floor((hoy - c.ultima) / 86400000);
+        return { ...c, dias, prom: Math.round(c.totalHist / c.comprasHist) };
+      }).sort((a, b) => b.dias - a.dias).slice(0, 6);
+
+      const fechaCorta = d => d.toLocaleDateString('es-VE', { day: '2-digit', month: 'short' });
+      const medallas = ['🥇', '🥈', '🥉', '4', '5'];
+      const maxTotal = top.length ? top[0].mes : 1;
+
+      let izq;
+      if (top.length === 0) {
+        izq = '<div style="padding:20px;text-align:center;color:var(--dgray);font-size:12.5px">Nadie ha comprado este mes en ' + nombreEmpresa(estado.empresa) + '</div>';
+      } else {
+        izq = top.map((c, i) => {
+          const pct = (c.mes / maxTotal * 100).toFixed(0);
+          return `<div style="margin-bottom:10px">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
               <span style="font-size:12.5px;font-weight:500"><span style="display:inline-block;width:20px">${medallas[i]}</span> ${c.nombre}</span>
-              <span style="font-weight:700;color:var(--navy);font-size:13px">${fmtUSD(c.total)}</span>
+              <span style="font-weight:700;color:var(--navy);font-size:13px">${fmtUSD(c.mes)}</span>
             </div>
             <div style="background:var(--gray);border-radius:4px;height:8px;margin-left:24px"><div style="background:linear-gradient(90deg,var(--gold),#E0B020);height:100%;width:${pct}%;border-radius:4px"></div></div>
-            <div style="font-size:10.5px;color:var(--dgray);margin-left:24px;margin-top:2px">${c.compras} compras · última ${c.ultima}</div>
+            <div style="font-size:10.5px;color:var(--dgray);margin-left:24px;margin-top:2px">${c.comprasMes} ${c.comprasMes === 1 ? 'compra' : 'compras'} este mes · última ${fechaCorta(c.ultima)}</div>
           </div>`;
-      }).join('')}
-      </div>
-      <div>
-        <h3 style="font-size:13px;color:var(--red);font-weight:600;margin-bottom:10px"><i class="ti ti-alert-triangle"></i> Clientes que dejaron de comprar</h3>
-        ${inactivos.map(c => `
+        }).join('');
+      }
+
+      let der;
+      if (dormidos.length === 0) {
+        der = '<div style="padding:20px;text-align:center;color:var(--dgray);font-size:12.5px">Ningún cliente lleva más de 30 días sin comprar</div>';
+      } else {
+        der = dormidos.map(c => `
           <div style="background:#FEF5F5;border:1px solid #F5C0C0;border-radius:8px;padding:10px 12px;margin-bottom:8px">
             <div style="font-weight:600;font-size:12.5px;color:#222">${c.nombre}</div>
             <div style="font-size:11px;color:var(--red);font-weight:500;margin:2px 0">⚠ ${c.dias} días sin comprar</div>
-            <div style="font-size:10.5px;color:var(--dgray)">Antes compraba ${c.promedio} · Última: ${c.ultima}</div>
-            <button class="btn btn-secondary btn-sm" style="margin-top:6px;font-size:10.5px" onclick="notif('Demo: contactar cliente por WhatsApp','warning')"><i class="ti ti-brand-whatsapp"></i> Contactar</button>
-          </div>`).join('')}
+            <div style="font-size:10.5px;color:var(--dgray)">${c.comprasHist} compras históricas · ticket promedio ${fmtUSD(c.prom)} · última ${fechaCorta(c.ultima)}</div>
+          </div>`).join('');
+      }
+
+      cont.innerHTML = `
+    <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:16px">
+      <div>
+        <h3 style="font-size:13px;color:var(--navy);font-weight:600;margin-bottom:10px"><i class="ti ti-trophy" style="color:var(--gold)"></i> Top 5 compradores del mes · ${nombreEmpresa(estado.empresa)}</h3>
+        ${izq}
+      </div>
+      <div>
+        <h3 style="font-size:13px;color:var(--red);font-weight:600;margin-bottom:10px"><i class="ti ti-alert-triangle"></i> Clientes que dejaron de comprar</h3>
+        ${der}
       </div>
     </div>`;
     }
@@ -9187,43 +9560,136 @@ GEN-3401    5"
       </tbody>
     </table>
     <div style="margin-top:12px;text-align:right">
-      <button class="btn btn-primary btn-sm" onclick="notif('Demo: generaría orden de compra con productos sugeridos','success')"><i class="ti ti-file-export"></i> Generar orden de compra sugerida</button>
+
     </div>`;
     }
 
-    // ─── BACKUP AMIGABLE ───
+    // ─── RESPALDO — DESCARGAS REALES (v13.2) ───
+    // Genera CSV desde los datos YA cargados en memoria. No consulta Supabase
+    // de nuevo: si estas viendo el sistema, la data ya esta aqui.
+    // CSV y no Excel de verdad (.xlsx) porque generar xlsx requiere una libreria
+    // externa; Excel abre el CSV sin problema con doble clic.
+
+    function _csvEsc(v) {
+      if (v === null || v === undefined) return '';
+      const s = String(v);
+      return /[",;\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }
+    // Separador ';' porque Excel en configuracion regional es-VE usa la coma
+    // como decimal. Con ',' todo cae en una sola columna.
+    function _descargarCSV(nombre, filas) {
+      const cuerpo = filas.map(f => f.map(_csvEsc).join(';')).join('\r\n');
+      // BOM para que Excel respete los acentos
+      const blob = new Blob(['\uFEFF' + cuerpo], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = nombre;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+    function _hoyArchivo() {
+      const d = new Date();
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    }
+
+    function backupInventario() {
+      if (!PRODUCTOS.length) { notif('No hay productos cargados', 'error'); return; }
+      const filas = [['Codigo', 'Cod. original', 'Descripcion', 'Marca', 'Sistema', 'Origen', 'Proveedor',
+        'FOB USD', 'Factor landed', 'Costo landed USD', 'Precio publico USD', 'Stock VD', 'Stock Dist', 'Aplicacion']];
+      PRODUCTOS.forEach(p => filas.push([
+        p.cod_alt, p.cod_orig || '', p.desc, p.marca || '', p.sistema || '',
+        p.origen || 'importado', p.proveedor || '',
+        (p.fob || 0).toFixed(2), (p.factor_landed || FACTOR_LANDED_FALLBACK).toFixed(3),
+        costoLanded(p).toFixed(2), precioLista(p).toFixed(2),
+        p.stock_vd || 0, p.stock_dist || 0, p.marca_modelo || ''
+      ]));
+      _descargarCSV('ARJ_inventario_' + _hoyArchivo() + '.csv', filas);
+      logBitacora('inventario', 'Descargó respaldo de inventario (' + PRODUCTOS.length + ' productos)', false);
+      notif(PRODUCTOS.length + ' productos descargados', 'success');
+    }
+
+    function backupSemanal() {
+      const hoy = new Date();
+      const desde = new Date(hoy.getTime() - 7 * 86400000);
+      const facts = (TODAS_FACTURAS || []).filter(f => f.fecha_raw && new Date(f.fecha_raw) >= desde);
+      if (!facts.length) { notif('No hay facturas en los últimos 7 días', 'error'); return; }
+      const filas = [['RESUMEN SEMANAL ARJ — ' + desde.toLocaleDateString('es-VE') + ' al ' + hoy.toLocaleDateString('es-VE')], [],
+      ['Factura', 'Fecha', 'Empresa', 'Cliente', 'Vendedor', 'Tipo', 'Estado', 'Total USD', 'Abonado USD', 'Saldo USD']];
+      let tot = 0, totSaldo = 0;
+      facts.forEach(f => {
+        if (f.estado !== 'anulada') { tot += (f.total || 0); totSaldo += (f.saldo_pendiente || 0); }
+        filas.push([f.num, f.fecha, f.empresa === 'directa' ? 'Venta Directa' : 'Distribuidora',
+          f.cliente_nombre_snap || f.cliente, f.vendedor || '', f.tipo_pago || '', (f.estado || '').toUpperCase(),
+          (f.total || 0).toFixed(2), (f.abonado || 0).toFixed(2), (f.saldo_pendiente || 0).toFixed(2)]);
+      });
+      filas.push([], ['TOTAL FACTURADO (sin anuladas)', '', '', '', '', '', '', tot.toFixed(2)]);
+      filas.push(['TOTAL POR COBRAR', '', '', '', '', '', '', totSaldo.toFixed(2)]);
+      _descargarCSV('ARJ_semana_' + _hoyArchivo() + '.csv', filas);
+      logBitacora('inventario', 'Descargó resumen semanal (' + facts.length + ' facturas)', false);
+      notif(facts.length + ' facturas de la semana descargadas', 'success');
+    }
+
+    // Respaldo completo: JSON con TODO lo que hay en memoria. No es un .zip
+    // porque comprimir requiere libreria externa; el JSON es lo que de verdad
+    // sirve para reconstruir, y pesa poco.
+    function backupCompleto() {
+      const dump = {
+        generado: new Date().toISOString(),
+        version: 'v13.2',
+        tasas: { par: estado.tasa_par, bcv: estado.tasa_bcv },
+        equipo: EQUIPO,
+        metas_hist: METAS_HIST,
+        costos_fijos_hist: estado.costos_fijos_hist,
+        productos: PRODUCTOS,
+        clientes: CLIENTES,
+        facturas: TODAS_FACTURAS,
+        cotizaciones: COTIZACIONES,
+        bitacora: BITACORA
+      };
+      const blob = new Blob([JSON.stringify(dump, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'ARJ_respaldo_completo_' + _hoyArchivo() + '.json';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      logBitacora('inventario', 'Descargó respaldo completo del sistema', true);
+      notif('Respaldo completo descargado', 'success');
+    }
+
     function renderBackup() {
       const cont = document.getElementById('backup-content');
       if (!cont) return;
-      cont.innerHTML = '<div style="padding:20px;text-align:center;color:var(--dgray);font-size:13px">Función de respaldos en desarrollo</div>';
-      return;
+      const nFact = (TODAS_FACTURAS || []).length;
+      const hoy = new Date();
+      const desde = new Date(hoy.getTime() - 7 * 86400000);
+      const nSem = (TODAS_FACTURAS || []).filter(f => f.fecha_raw && new Date(f.fecha_raw) >= desde).length;
+
       cont.innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
       <div style="background:var(--lgreen);border-radius:8px;padding:16px">
         <div style="font-size:13px;font-weight:600;color:var(--green);margin-bottom:6px"><i class="ti ti-cloud-check"></i> Respaldo automático en la nube</div>
         <div style="font-size:12px;color:var(--dgray);line-height:1.6">
-          Estado: <strong style="color:var(--green)">● Activo en tiempo real</strong><br>
-          Último respaldo: <strong>Hoy 4:52 p.m.</strong><br>
-          Frecuencia: cada cambio que hagas
+          Estado: <strong style="color:var(--green)">● Activo</strong> — cada factura, cliente y producto se guarda en Supabase al instante.<br>
+          Cargado ahora: <strong>${PRODUCTOS.length}</strong> productos · <strong>${CLIENTES.length}</strong> clientes · <strong>${nFact}</strong> facturas
         </div>
       </div>
       <div style="background:var(--lblue);border-radius:8px;padding:16px">
-        <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:6px"><i class="ti ti-calendar"></i> Resumen semanal en Excel</div>
+        <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:6px"><i class="ti ti-shield-check"></i> Por qué descargar igual</div>
         <div style="font-size:12px;color:var(--dgray);line-height:1.6">
-          Cada viernes el sistema genera un Excel con todo lo que pasó en la semana, fácil de leer.<br>
-          Próximo: <strong>viernes 6:00 p.m.</strong>
+          El respaldo en la nube te protege de que se dañe la computadora.<br>
+          El respaldo <strong>en tu mano</strong> te protege de un borrado por error o de perder el acceso a la cuenta.
         </div>
       </div>
     </div>
     <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;padding:16px;margin-top:14px">
       <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:12px">Descargar respaldo manual</div>
       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
-        <button class="btn btn-secondary" onclick="notif('Demo: descarga Excel con ventas, inventario y clientes de la semana','success')"><i class="ti ti-file-spreadsheet"></i> Resumen semanal (Excel)</button>
-        <button class="btn btn-secondary" onclick="notif('Demo: descarga respaldo completo del sistema','success')"><i class="ti ti-database-export"></i> Respaldo completo (.zip)</button>
-        <button class="btn btn-secondary" onclick="notif('Demo: descarga solo el inventario actual','success')"><i class="ti ti-package"></i> Solo inventario (Excel)</button>
+        <button class="btn btn-secondary" onclick="backupSemanal()" ${nSem ? '' : 'disabled title="No hay facturas esta semana"'}><i class="ti ti-file-spreadsheet"></i> Resumen semanal (${nSem})</button>
+        <button class="btn btn-secondary" onclick="backupCompleto()"><i class="ti ti-database-export"></i> Respaldo completo (.json)</button>
+        <button class="btn btn-secondary" onclick="backupInventario()" ${PRODUCTOS.length ? '' : 'disabled'}><i class="ti ti-package"></i> Solo inventario (${PRODUCTOS.length})</button>
       </div>
       <div style="background:#FFF8E1;border-left:3px solid var(--gold);border-radius:6px;padding:10px 14px;margin-top:14px;font-size:12px;color:#5D4037">
-        <i class="ti ti-info-circle"></i> <strong>Consejo para tu papá:</strong> cada viernes descarga el "Resumen semanal" y guárdalo en una carpeta o pendrive. Es tu seguro: si algo pasa con la computadora, tienes todo lo importante en un Excel que cualquiera puede abrir.
+        <i class="ti ti-info-circle"></i> <strong>Rutina sugerida:</strong> cada viernes descarga el "Resumen semanal" y guárdalo en una carpeta o pendrive. Los dos primeros abren con doble clic en Excel; el <strong>.json</strong> no se lee a simple vista, pero es el que sirve para reconstruir todo si hace falta.
       </div>
     </div>`;
     }
@@ -9467,7 +9933,7 @@ GEN-3401    5"
         <div class="lp-desc">${l.desc} · ${l.descuento}% ${l.tipo === 'descuento' ? 'descuento' : l.tipo === 'costo' ? 'sobre costo' : 'precio fijo'} · ${l.clientes} cliente(s) asignado(s)</div>
       </div>
       <div style="display:flex;gap:4px">
-        <button class="btn btn-secondary btn-sm" onclick="notif('Demo: editar lista','warning')" title="Editar"><i class="ti ti-edit"></i></button>
+
         <button class="btn btn-secondary btn-sm" onclick="eliminarLista('${l.nombre}')" title="Eliminar" style="color:var(--red)"><i class="ti ti-trash"></i></button>
       </div>
     </div>`).join('');
@@ -9601,17 +10067,37 @@ GEN-3401    5"
     }
 
     // ─── SISTEMAS EDITABLES POR GERENTE ─────────────────────────
-    function agregarSistemaNuevo() {
+    // v13.3 BUG CORREGIDO: esta funcion hacia SISTEMAS.push() y nada mas. El
+    // sistema aparecia en el select y decia "guardado", pero al refrescar
+    // cargarDatosSupabase() vaciaba el array y lo rellenaba desde la tabla,
+    // donde nunca se habia insertado nada. Ahora escribe primero y solo suma al
+    // array local si el insert salio bien.
+    async function agregarSistemaNuevo() {
+      if (estado.rol !== 'gerente') { notif('Solo el gerente puede crear sistemas', 'error'); return; }
+      if (!_sb || !_supabaseConectado) { notif('Sin conexión: no se puede crear el sistema', 'error'); return; }
       const nombre = prompt('Nombre del nuevo sistema (ej: Transmisión, Aire acondicionado...):');
       if (!nombre || !nombre.trim()) return;
       const nombreLimpio = nombre.trim();
       if (SISTEMAS.includes(nombreLimpio)) { notif('Ese sistema ya existe', 'warning'); return; }
+
+      // Se coloca al final de la lista. Si un dia quieres reordenarlos, se hace
+      // con un update de `orden` en Supabase, no desde aqui.
+      const { error } = await _sb.from('sistemas').insert({
+        nombre: nombreLimpio,
+        orden: SISTEMAS.length + 1
+      });
+
+      if (error) {
+        console.error('[ARJ] Error insertando sistema:', error);
+        notif('No se pudo guardar el sistema: ' + (error.message || 'error desconocido'), 'error');
+        return;
+      }
+
       SISTEMAS.push(nombreLimpio);
-      // Re-llenar selects
       llenarSelectSistemas('ep-sistema', nombreLimpio);
       llenarSelectSistemas('inv-sistema', '');
       logBitacora('inventario', `Agregó nuevo sistema "${nombreLimpio}" a la lista`, false);
-      notif(`Sistema "${nombreLimpio}" agregado. Ya está disponible para asignar a productos.`, 'success');
+      notif(`Sistema "${nombreLimpio}" guardado.`, 'success');
     }
 
     function llenarSelectSistemas(selectId, valorSel) {
