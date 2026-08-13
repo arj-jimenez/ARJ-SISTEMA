@@ -3360,7 +3360,7 @@
           <<p class="page-sub" style="margin-bottom:0">Empresa: <strong id="empresa-fact">Venta Directa</strong> · Factura N° <strong id="num-factura">(se asigna al emitir)</strong> · Fecha: <strong id="fecha-hoy-fact"></strong></p>
 <script>document.getElementById('fecha-hoy-fact').textContent = new Date().toLocaleDateString('es-VE',{day:'2-digit',month:'short',year:'numeric'});</script>
         </div>
-        <button class="btn btn-gold" onclick="activarModoCaja()"><i class="ti ti-cash-register"></i> Modo Caja (pantalla
+        <button class="btn btn-gold" style="display:none" onclick="activarModoCaja()"><i class="ti ti-cash-register"></i> Modo Caja (pantalla
           simple)</button>
       </div>
       <div class="help-box">
@@ -4145,6 +4145,36 @@ GEN-3401    5"
         </div>
       </div>
 
+      <!-- v13.7: desglose de las salidas. El total de arriba dice cuánta plata
+           salió de la caja (liquidez). Este desglose dice cuánto de eso fue
+           realmente gasto (rentabilidad). Son dos preguntas distintas. -->
+      <div class="card" id="mov-desglose-card" style="margin-bottom:14px;display:none">
+        <div class="card-tit"><i class="ti ti-chart-pie"></i> En qué se fue el dinero que salió</div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:10px">
+          <div style="background:#FEF5F5;border-radius:8px;padding:12px">
+            <div style="font-size:10.5px;color:var(--dgray);text-transform:uppercase;letter-spacing:.04em;font-weight:500">Gasto del mes</div>
+            <div style="font-size:19px;font-weight:600;color:var(--red)" id="mov-cls-opex">$ 0</div>
+            <div style="font-size:10.5px;color:var(--dgray);margin-top:2px">Sueldos, servicios, contador. <strong>Sí baja la utilidad.</strong></div>
+          </div>
+          <div style="background:var(--lblue);border-radius:8px;padding:12px">
+            <div style="font-size:10.5px;color:var(--dgray);text-transform:uppercase;letter-spacing:.04em;font-weight:500">Mercancía</div>
+            <div style="font-size:19px;font-weight:600;color:var(--navy)" id="mov-cls-inventario">$ 0</div>
+            <div style="font-size:10.5px;color:var(--dgray);margin-top:2px">Se volvió inventario. <strong>No es gasto</strong> hasta que se venda.</div>
+          </div>
+          <div style="background:var(--lgold);border-radius:8px;padding:12px">
+            <div style="font-size:10.5px;color:var(--dgray);text-transform:uppercase;letter-spacing:.04em;font-weight:500">Inversión</div>
+            <div style="font-size:19px;font-weight:600;color:#854F0B" id="mov-cls-capex">$ 0</div>
+            <div style="font-size:10.5px;color:var(--dgray);margin-top:2px">Galpón, equipos. <strong>Se deprecia</strong> con los años.</div>
+          </div>
+          <div style="background:var(--gray);border-radius:8px;padding:12px">
+            <div style="font-size:10.5px;color:var(--dgray);text-transform:uppercase;letter-spacing:.04em;font-weight:500">Capital</div>
+            <div style="font-size:19px;font-weight:600;color:var(--dgray)" id="mov-cls-no_gasto">$ 0</div>
+            <div style="font-size:10.5px;color:var(--dgray);margin-top:2px">Retiros del dueño. <strong>No es gasto</strong>, es reparto.</div>
+          </div>
+        </div>
+        <div id="mov-desglose-nota" style="margin-top:10px"></div>
+      </div>
+
       <div class="card" style="margin-bottom:14px">
         <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
           <div>
@@ -4359,14 +4389,14 @@ GEN-3401    5"
         <div class="kpi-card green">
           <div class="kpi-icon"><i class="ti ti-check"></i></div>
           <div class="kpi-label">Ventas hoy (no fiscales)</div>
-          <div class="kpi-val" style="font-size:20px">0</div>
-          <div class="kpi-sub">$ 0</div>
+          <div class="kpi-val" style="font-size:20px" id="exp-kpi-nofiscal">0</div>
+          <div class="kpi-sub" id="exp-kpi-nofiscal-sub">$ 0</div>
         </div>
         <div class="kpi-card blue">
           <div class="kpi-icon"><i class="ti ti-receipt-tax"></i></div>
           <div class="kpi-label">Ventas hoy con fiscal</div>
-          <div class="kpi-val" style="font-size:20px">0</div>
-          <div class="kpi-sub">$ 0</div>
+          <div class="kpi-val" style="font-size:20px" id="exp-kpi-fiscal">0</div>
+          <div class="kpi-sub" id="exp-kpi-fiscal-sub">$ 0</div>
         </div>
         <div class="kpi-card gold">
           <div class="kpi-icon"><i class="ti ti-clock"></i></div>
@@ -4377,8 +4407,8 @@ GEN-3401    5"
         <div class="kpi-card red">
           <div class="kpi-icon"><i class="ti ti-alert-triangle"></i></div>
           <div class="kpi-label">Último export</div>
-          <div class="kpi-val" style="font-size:14px"> - </div>
-          <div class="kpi-sub">aún sin reportes</div>
+          <div class="kpi-val" style="font-size:14px" id="exp-kpi-ultimo">—</div>
+          <div class="kpi-sub" id="exp-kpi-ultimo-sub">aún sin reportes</div>
         </div>
       </div>
 
@@ -4389,11 +4419,11 @@ GEN-3401    5"
             <div
               style="font-size:11px;color:var(--dgray);text-transform:uppercase;letter-spacing:.04em;font-weight:500;margin-bottom:6px">
               Reporte del día</div>
-            <div style="font-size:16px;color:var(--navy);font-weight:600;margin-bottom:6px">0 ventas · $ 0</div>
+            <div style="font-size:16px;color:var(--navy);font-weight:600;margin-bottom:6px" id="exp-resumen-dia">0 ventas · $ 0</div>
             <div style="font-size:11.5px;color:var(--dgray);margin-bottom:10px">Movimientos de hoy. Se genera
               automáticamente al cierre.</div>
             <button class="btn btn-primary btn-sm" onclick="generarReporteFiscal('dia')"><i
-                class="ti ti-file-spreadsheet"></i> Descargar Excel del día</button>
+                class="ti ti-file-spreadsheet"></i> Descargar reporte del día</button>
           </div>
           <div style="background:#F5F8FC;border-radius:8px;padding:14px">
             <div
@@ -4914,6 +4944,7 @@ GEN-3401    5"
           <tr>
             <th>Producto</th>
             <th class="num">Facturado</th>
+            <th class="num">Ya devuelto</th>
             <th class="num">Precio</th>
             <th class="num">Devolver</th>
             <th class="num">Crédito $</th>
@@ -4926,6 +4957,15 @@ GEN-3401    5"
         <span>Total nota de crédito:</span>
         <span id="nc-total">$ 0,00</span>
       </div>
+      <!-- v13.8: qué se hace con el crédito. Solo aparece cuando la factura ya
+           está pagada y no hay saldo contra el cual descontar. -->
+      <div id="nc-destino-wrap" style="display:none;margin-top:12px">
+        <label style="font-size:11px;color:var(--dgray);font-weight:500;display:block;margin-bottom:4px">Esta factura ya está pagada. ¿Qué se hace con el crédito?</label>
+        <select class="val-input" id="nc-destino" style="width:100%">
+          <option value="favor">Dejarlo a favor del cliente (baja su saldo o queda de anticipo)</option>
+          <option value="efectivo">Devolver el efectivo (sale de caja hoy)</option>
+        </select>
+      </div>
       <div class="field-row" style="flex-direction:column;align-items:flex-start;gap:6px;margin-top:10px">
         <label>Motivo:</label>
         <textarea id="nc-motivo" placeholder="Ej: Cliente devolvió 2 filtros por garantía..."
@@ -4934,7 +4974,7 @@ GEN-3401    5"
       <div
         style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;padding-top:12px;border-top:1px solid var(--gray)">
         <button class="btn btn-secondary" onclick="cerrarNotaCredito()">Cancelar</button>
-        <button class="btn btn-gold" onclick="confirmarNotaCredito()"><i class="ti ti-receipt-refund"></i> Emitir nota
+        <button class="btn btn-gold" id="nc-btn-emitir" onclick="confirmarNotaCredito()"><i class="ti ti-receipt-refund"></i> Emitir nota
           de crédito</button>
       </div>
     </div>
@@ -7544,7 +7584,7 @@ GEN-3401    5"
       </div>
       <div style="display:flex;gap:4px" onclick="event.stopPropagation()">
         <button class="btn btn-primary btn-sm" onclick="abrirAbono('${f.num}')" title="Registrar abono"><i class="ti ti-cash-banknote"></i></button>
-        <button class="btn btn-gold btn-sm" onclick="abrirNotaCredito('${f.num}','${f.cliente}')" title="Nota de crédito"><i class="ti ti-receipt-refund"></i></button>
+        <button class="btn btn-gold btn-sm" onclick="abrirNotaCredito('${f.num}')" title="Nota de crédito"><i class="ti ti-receipt-refund"></i></button>
         <button class="btn btn-red btn-sm" onclick="abrirAnular('${f.num}','${f.cliente}')" title="Anular factura"><i class="ti ti-trash"></i></button>
       </div>
     </div>`;
@@ -9474,53 +9514,218 @@ GEN-3401    5"
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // NOTA DE CRÉDITO
+    // NOTA DE CRÉDITO (v13.8 — reconstruida)
+    // Antes mostraba items DEMO y no escribía nada, pero decía "emitida, stock
+    // restaurado". Ahora lee los renglones reales de la factura y escribe.
+    //
+    // Se registra como PAGO NEGATIVO en `pagos`, el mismo patrón que usa la
+    // anulación con abonos. Así no hace falta tabla nueva y el histórico de
+    // movimientos de la factura queda en un solo lugar.
+    //
+    // El precio sale de `precio_unitario` del renglón (congelado al emitir), no
+    // se recalcula: el cliente pagó ese precio y ese se le devuelve.
     // ═══════════════════════════════════════════════════════════════
     let facturaNC = null;
     let ncItems = [];
-    function abrirNotaCredito(num, cliente) {
-      facturaNC = { num, cliente };
-      document.getElementById('nc-info').textContent = `${num} · ${cliente} · Devolución parcial`;
-      // Simulamos los items facturados (ejemplo)
-      ncItems = [
-        { cod: 'STH-7842', desc: 'Turbo K27 John Deere 6420', cantFacturada: 1, precio: 374.83, devolver: 0 },
-        { cod: 'BAR-1245', desc: 'Filtro hidráulico FH-2210', cantFacturada: 3, precio: 19.76, devolver: 0 },
-        { cod: 'LON-0089', desc: 'Asiento operador A45', cantFacturada: 1, precio: 156.00, devolver: 0 },
-      ];
-      renderNCItems();
+
+    async function abrirNotaCredito(num) {
+      if (estado.rol !== 'gerente') { notif('Solo el gerente puede emitir notas de crédito', 'error'); return; }
+      if (!_sb || !_supabaseConectado) { notif('Sin conexión a la base de datos', 'error'); return; }
+
+      const f = TODAS_FACTURAS.find(x => x.num === num);
+      if (!f) { notif('Factura no encontrada', 'error'); return; }
+      if (f.estado === 'anulada') { notif('No se puede acreditar una factura anulada', 'error'); return; }
+
+      facturaNC = f;
+      ncItems = [];
+      document.getElementById('nc-info').textContent = `${f.num} · ${f.cliente_nombre_snap || f.cliente} · cargando…`;
+      document.getElementById('nc-items').innerHTML = '<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--dgray)">Cargando renglones…</td></tr>';
       document.getElementById('nc-motivo').value = '';
+      document.getElementById('nc-destino-wrap').style.display = 'none';
       document.getElementById('modal-nota-credito').classList.add('show');
+
+      const { data: items, error } = await _sb.from('factura_items').select('*').eq('factura_id', f.id);
+      if (error || !items || !items.length) {
+        console.error('[ARJ] items NC:', error);
+        document.getElementById('nc-items').innerHTML = '<tr><td colspan="6" style="text-align:center;padding:16px;color:var(--red)">No se pudieron cargar los renglones de esta factura</td></tr>';
+        return;
+      }
+
+      // Notas de crédito anteriores sobre esta misma factura: hay que restarlas
+      // para no permitir devolver dos veces lo mismo.
+      const { data: pagosPrev } = await _sb.from('pagos').select('referencia, monto_usd')
+        .eq('factura_id', f.id).lt('monto_usd', 0);
+      const yaDev = {};
+      (pagosPrev || []).forEach(pg => {
+        const m = /NC:([^|]+)\|/.exec(pg.referencia || '');
+        if (!m) return;
+        m[1].split(';').forEach(par => {
+          const [cod, cant] = par.split('=');
+          if (cod) yaDev[cod] = (yaDev[cod] || 0) + (parseInt(cant, 10) || 0);
+        });
+      });
+
+      ncItems = items.map(it => ({
+        producto_id: it.producto_id,
+        cod: it.cod_alt,
+        desc: it.descripcion,
+        cantFacturada: it.cantidad,
+        yaDevuelto: yaDev[it.cod_alt] || 0,
+        precio: it.precio_unitario || 0,
+        devolver: 0
+      }));
+
+      const abon = f.abonado || 0;
+      document.getElementById('nc-info').textContent =
+        `${f.num} · ${f.cliente_nombre_snap || f.cliente} · ${fmtUSD(f.total || 0)} · abonado ${fmtUSD(abon)}`;
+      renderNCItems();
     }
+
     function renderNCItems() {
       const tbody = document.getElementById('nc-items');
-      tbody.innerHTML = ncItems.map((it, i) => `
-    <tr>
-      <td><strong>${it.cod}</strong><div style="font-size:11px;color:var(--dgray)">${it.desc}</div></td>
+      tbody.innerHTML = ncItems.map((it, i) => {
+        const disp = it.cantFacturada - it.yaDevuelto;
+        return `<tr${disp <= 0 ? ' style="opacity:.5"' : ''}>
+      <td><strong>${it.cod}</strong><div style="font-size:11px;color:var(--dgray)">${it.desc || ''}</div></td>
       <td class="num">${it.cantFacturada}</td>
+      <td class="num">${it.yaDevuelto > 0 ? '<span style="color:var(--gold);font-weight:600">' + it.yaDevuelto + '</span>' : '—'}</td>
       <td class="num">${fmtUSD(it.precio)}</td>
-      <td class="num"><input type="number" min="0" max="${it.cantFacturada}" value="${it.devolver}" onchange="actualizarNCItem(${i},this.value)" style="width:70px;padding:4px 8px;text-align:right;border:1px solid var(--border);border-radius:5px;font-family:inherit"></td>
+      <td class="num">${disp > 0
+            ? `<input type="number" min="0" max="${disp}" value="${it.devolver}" onchange="actualizarNCItem(${i},this.value)" style="width:70px;padding:4px 8px;text-align:right;border:1px solid var(--border);border-radius:5px;font-family:inherit">`
+            : '<span style="font-size:11px;color:var(--dgray)">devuelto</span>'}</td>
       <td class="num"><strong style="color:var(--gold)">${fmtUSD(it.devolver * it.precio)}</strong></td>
-    </tr>`).join('');
+    </tr>`;
+      }).join('');
       recalcularNC();
     }
+
     function actualizarNCItem(i, v) {
-      ncItems[i].devolver = Math.min(parseInt(v) || 0, ncItems[i].cantFacturada);
+      const it = ncItems[i];
+      const disp = it.cantFacturada - it.yaDevuelto;
+      it.devolver = Math.max(0, Math.min(parseInt(v) || 0, disp));
       renderNCItems();
     }
+
     function recalcularNC() {
       const tot = ncItems.reduce((a, it) => a + it.devolver * it.precio, 0);
       document.getElementById('nc-total').textContent = fmtUSD(tot);
+      // El selector de destino solo aparece si no hay saldo pendiente que
+      // absorba el crédito: ahí sí hay que decidir a dónde va la plata.
+      const saldo = facturaNC ? (facturaNC.saldo_pendiente || 0) : 0;
+      const wrap = document.getElementById('nc-destino-wrap');
+      if (wrap) wrap.style.display = (tot > 0.009 && saldo < 0.01) ? '' : 'none';
     }
-    function cerrarNotaCredito() { document.getElementById('modal-nota-credito').classList.remove('show'); facturaNC = null; }
-    function confirmarNotaCredito() {
+
+    function cerrarNotaCredito() {
+      document.getElementById('modal-nota-credito').classList.remove('show');
+      facturaNC = null; ncItems = [];
+    }
+
+    async function confirmarNotaCredito() {
+      if (!facturaNC) return;
       const motivo = document.getElementById('nc-motivo').value.trim();
-      const totDev = ncItems.reduce((a, it) => a + it.devolver, 0);
-      if (totDev === 0) { notif('Selecciona al menos un producto a devolver', 'error'); return; }
+      const dev = ncItems.filter(it => it.devolver > 0);
+      const totDev = dev.reduce((a, it) => a + it.devolver, 0);
+      const tot = dev.reduce((a, it) => a + it.devolver * it.precio, 0);
+
+      if (totDev === 0) { notif('Indica cuántas unidades devuelve el cliente', 'error'); return; }
       if (!motivo) { notif('Indica el motivo de la devolución', 'error'); return; }
-      const tot = ncItems.reduce((a, it) => a + it.devolver * it.precio, 0);
-      logBitacora('anulacion', `Emitió nota de crédito sobre ${facturaNC.num} por ${fmtUSD(tot)} (${totDev} productos) — motivo: "${motivo}"`, true);
-      notif(`Nota de crédito emitida por ${fmtUSD(tot)}. Stock restaurado.`, 'success');
-      cerrarNotaCredito();
+      if (!_sb || !_supabaseConectado) { notif('Sin conexión: no se puede emitir', 'error'); return; }
+
+      const f = facturaNC;
+      const saldoAntes = f.saldo_pendiente || 0;
+      // El crédito primero cancela lo que el cliente aún debe. Solo el sobrante
+      // se le devuelve o le queda a favor.
+      const aplicaSaldo = Math.min(tot, saldoAntes);
+      const sobrante = tot - aplicaSaldo;
+      const destino = sobrante > 0.009
+        ? (document.getElementById('nc-destino').value || 'favor') : 'favor';
+
+      let msg = `NOTA DE CRÉDITO sobre ${f.num}\n\n${totDev} unidad(es) · ${fmtUSD(tot)}\n\n`;
+      msg += `El stock de esos productos vuelve a ${f.empresa === 'directa' ? 'Venta Directa' : 'Distribuidora'}.\n\n`;
+      if (aplicaSaldo > 0.009) msg += `Baja ${fmtUSD(aplicaSaldo)} del saldo pendiente.\n`;
+      if (sobrante > 0.009) msg += destino === 'efectivo'
+        ? `Se devuelven ${fmtUSD(sobrante)} en efectivo (sale de caja).\n` : `Quedan ${fmtUSD(sobrante)} a favor del cliente.\n`;
+      msg += '\nEsto no se puede deshacer. ¿Emitir?';
+      if (!confirm(msg)) return;
+
+      const btn = document.getElementById('nc-btn-emitir');
+      btn.disabled = true; btn.textContent = 'Emitiendo...';
+
+      try {
+        // 1. Stock de vuelta al almacén de la empresa de la factura
+        const campoStock = f.empresa === 'directa' ? 'stock_vd' : 'stock_dist';
+        for (const it of dev) {
+          if (!it.producto_id) continue;
+          const { data: prod } = await _sb.from('productos').select(campoStock).eq('id', it.producto_id).single();
+          if (!prod) continue;
+          const nuevo = (prod[campoStock] || 0) + it.devolver;
+          await _sb.from('productos').update({ [campoStock]: nuevo }).eq('id', it.producto_id);
+          const pl = PRODUCTOS.find(p => p.id === it.producto_id);
+          if (pl) pl[campoStock] = nuevo;
+        }
+
+        // 2. Pago negativo. La referencia lleva el detalle codificado para poder
+        //    reconstruir cuánto se devolvió de cada renglón en notas futuras.
+        const detalle = dev.map(it => `${it.cod}=${it.devolver}`).join(';');
+        await _sb.from('pagos').insert({
+          factura_id: f.id,
+          monto_usd: -tot,
+          monto_bs: -(tot * colchonFactor() * estado.tasa_bcv),
+          tasa_usada: estado.tasa_par,
+          metodo: 'Nota de crédito',
+          referencia: `NC:${detalle}| ${motivo}`,
+          registrado_por: estado.usuario || 'Sistema'
+        });
+
+        // 3. Saldo de la factura
+        const nuevoSaldo = Math.max(0, saldoAntes - aplicaSaldo);
+        await _sb.from('facturas').update({
+          saldo_pendiente: nuevoSaldo,
+          estado: nuevoSaldo < 0.01 ? 'pagada' : f.estado
+        }).eq('id', f.id);
+        f.saldo_pendiente = nuevoSaldo;
+        if (nuevoSaldo < 0.01) f.estado = 'pagada';
+
+        // 4. Saldo del cliente
+        const cli = CLIENTES.find(c => c.id === f.cliente_id);
+        if (cli) {
+          const campoSaldo = f.empresa === 'directa' ? 'saldo_vd' : 'saldo_dist';
+          const actual = (f.empresa === 'directa' ? cli.saldo_vd : cli.saldo_dist) || 0;
+          // Si sobra y queda "a favor", el saldo puede irse a negativo: eso es
+          // justamente un anticipo a favor del cliente, no un error.
+          const baja = destino === 'favor' ? tot : aplicaSaldo;
+          const nuevoCli = actual - baja;
+          await _sb.from('clientes').update({ [campoSaldo]: nuevoCli }).eq('id', cli.id);
+          if (f.empresa === 'directa') cli.saldo_vd = nuevoCli; else cli.saldo_dist = nuevoCli;
+        }
+
+        // 5. Si se devuelve efectivo, sale de caja y tiene que verse en Movimientos
+        if (destino === 'efectivo' && sobrante > 0.009) {
+          await _sb.from('movimientos_caja').insert({
+            tipo: 'salida', categoria: 'dev_cliente', clasificacion: 'no_gasto',
+            concepto: `Devolución por nota de crédito ${f.num}`,
+            monto_usd: sobrante, monto_bs: sobrante * colchonFactor() * estado.tasa_bcv,
+            moneda: 'USD', tasa_usada: estado.tasa_par, tasa_bcv_ref: estado.tasa_bcv,
+            empresa: f.empresa, afecta_caja: true, anulado: false,
+            registrado_por: estado.usuario || 'Sistema'
+          });
+        }
+
+        const txt = `Nota de crédito sobre ${f.num} por ${fmtUSD(tot)} (${totDev} unidades: ${detalle}) — ${destino === 'efectivo' ? 'efectivo devuelto' : 'a favor del cliente'} — motivo: "${motivo}"`;
+        logBitacora('anulacion', txt, true);
+        _sbLogBitacora(estado.usuario, estado.empresa, 'anulacion', txt, true);
+
+        cerrarNotaCredito();
+        renderHistorial();
+        notif(`Nota de crédito por ${fmtUSD(tot)} emitida. Stock devuelto.`, 'success');
+      } catch (err) {
+        console.error('[ARJ] Error en nota de crédito:', err);
+        notif('Error emitiendo la nota de crédito. Revisa la factura antes de reintentar.', 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="ti ti-receipt-refund"></i> Emitir nota de crédito';
+      }
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -9836,12 +10041,19 @@ GEN-3401    5"
     let cajaItems = [];
 
     function activarModoCaja() {
+      // v13.8 DESHABILITADO: cajaCobrar() decía "Venta cobrada. Factura emitida e
+      // impresa." y no emitía nada — sin factura, sin descuento de stock, sin
+      // registro del cobro. Usado en mostrador, la mercancía salía sin rastro.
+      notif('El Modo Caja está en construcción. Usa la pantalla de Facturación.', 'error');
+      return;
+      /* eslint-disable no-unreachable */
       cajaItems = [];
       document.getElementById('caja-empresa-label').textContent = estado.empresa === 'directa' ? 'Venta Directa' : 'Distribuidora';
       document.getElementById('caja-modo').classList.add('show');
       setTimeout(() => document.getElementById('caja-input').focus(), 100);
       renderCajaItems();
       notif('Modo Caja activado — escanea o escribe códigos', 'success');
+      /* eslint-enable no-unreachable */
     }
 
     function salirModoCaja() {
@@ -9918,6 +10130,11 @@ GEN-3401    5"
     }
 
     function cajaCobrar() {
+      // v13.8: red de seguridad. Aunque alguien reactive el modal por consola,
+      // esto no cobra nada.
+      notif('El Modo Caja está en construcción. Usa la pantalla de Facturación.', 'error');
+      return;
+      /* eslint-disable no-unreachable */
       if (cajaItems.length === 0) return;
       const total = cajaItems.reduce((a, i) => a + i.cant * i.precio, 0);
       logBitacora('factura', `Venta rápida modo Caja — ${cajaItems.length} ítems — ${fmtUSD(total)}`, false);
@@ -9925,6 +10142,7 @@ GEN-3401    5"
       cajaItems = [];
       renderCajaItems();
       setTimeout(() => document.getElementById('caja-input').focus(), 100);
+      /* eslint-enable no-unreachable */
     }
 
     // Atajos modo caja
@@ -10686,33 +10904,178 @@ GEN-3401    5"
     }
 
     // ─── EXPORTACIÓN FISCAL ─────────────────────────────────────
-    function renderVentasPendientes() {
-      const tbody = document.getElementById('ventas-pendientes-body');
-      if (!tbody) return;
-      // Demo: ventas del día que aún no se han exportado
-      const ventas = [];
-      if (!ventas.length) { tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--dgray);padding:20px">Sin ventas pendientes de exportar</td></tr>'; return; }
-      tbody.innerHTML = ventas.map(v => `<tr>
-    <td><strong>${v.num}</strong></td>
-    <td>${v.hora}</td>
-    <td>${v.cliente}</td>
-    <td>${v.vendedor}</td>
-    <td class="num">${fmtUSD(v.total)}</td>
-    <td>${v.fiscal ? '<span style="background:var(--lblue);color:var(--blue);padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:600"><i class="ti ti-check"></i> SÍ</span>' : '<span style="color:var(--dgray);font-size:11px">No</span>'}</td>
-    <td><span class="turno-badge abierto"><i class="ti ti-clock"></i> PENDIENTE</span></td>
-  </tr>`).join('');
+    // v13.6: era demo (`const ventas = []`, siempre vacía). Ahora delega en
+    // renderExportFiscal(), que lee de TODAS_FACTURAS y actualiza también los KPIs.
+    function renderVentasPendientes() { renderExportFiscal(); }
+
+    // ═══════════════════════════════════════════════════════════════
+    // EXPORTACIÓN FISCAL (v13.6)
+    // Genera dos CSV: uno de ventas (una línea por factura) y otro de detalle
+    // (una línea por renglón), para cargar al sistema fiscal homologado.
+    //
+    // SOBRE LA TASA — leer antes de usar:
+    // El sistema cobra en Bs a `tasa_bcv × factor_bs`, y factor_bs lleva el
+    // colchón anti-devaluación, así que el Bs cobrado va por encima del BCV puro.
+    // El libro fiscal normalmente se lleva a tasa BCV. Por eso el reporte trae
+    // LAS DOS columnas y la diferencia: cuál usar lo decide el contador, no
+    // este código.
+    // ═══════════════════════════════════════════════════════════════
+
+    function _fiscalRango(tipo) {
+      if (tipo === 'dia') {
+        const hoy = new Date();
+        const d = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+        const h2 = new Date(d.getTime() + 86400000);
+        return { desde: d, hasta: h2, etq: 'del día ' + d.toLocaleDateString('es-VE') };
+      }
+      const dv = document.getElementById('exp-desde').value;
+      const hv = document.getElementById('exp-hasta').value;
+      if (!dv || !hv) { notif('Selecciona el rango de fechas', 'error'); return null; }
+      const d = new Date(dv + 'T00:00:00');
+      // +1 día para que el "hasta" sea inclusivo: si pides 01 al 15, el 15
+      // completo tiene que entrar.
+      const h2 = new Date(new Date(hv + 'T00:00:00').getTime() + 86400000);
+      if (h2 <= d) { notif('El rango de fechas está al revés', 'error'); return null; }
+      return { desde: d, hasta: h2, etq: 'del ' + d.toLocaleDateString('es-VE') + ' al ' + new Date(hv + 'T00:00:00').toLocaleDateString('es-VE') };
     }
 
-    function generarReporteFiscal(tipo) {
-      if (tipo === 'dia') {
-        logBitacora('inventario', `Generó reporte fiscal del día`, true);
-        notif('Reporte Excel del día generado. Carga este archivo en tu sistema fiscal homologado.', 'success');
-      } else {
-        const desde = document.getElementById('exp-desde').value;
-        const hasta = document.getElementById('exp-hasta').value;
-        if (!desde || !hasta) { notif('Selecciona el rango de fechas', 'error'); return; }
-        logBitacora('inventario', `Generó reporte fiscal personalizado (${desde} a ${hasta})`, true);
-        notif(`Reporte del ${desde} al ${hasta} generado. Listo para cargar al sistema fiscal.`, 'success');
+    function _fiscalFacturas(desde, hasta) {
+      return (TODAS_FACTURAS || []).filter(f => {
+        if (!f.fecha_raw) return false;
+        const d = new Date(f.fecha_raw);
+        return d >= desde && d < hasta;
+      }).sort((a, b) => new Date(a.fecha_raw) - new Date(b.fecha_raw));
+    }
+
+    async function generarReporteFiscal(tipo) {
+      if (estado.rol !== 'gerente') { notif('Solo el gerente puede exportar al fiscal', 'error'); return; }
+      if (!_sb || !_supabaseConectado) { notif('Sin conexión a la base de datos', 'error'); return; }
+
+      const R = _fiscalRango(tipo);
+      if (!R) return;
+      const facts = _fiscalFacturas(R.desde, R.hasta);
+      if (!facts.length) { notif('No hay facturas ' + R.etq, 'warning'); return; }
+
+      notif('Preparando reporte...', 'warning');
+
+      // Los renglones se traen de Supabase: TODAS_FACTURAS no los carga.
+      const ids = facts.map(f => f.id).filter(x => x);
+      let items = [];
+      if (ids.length) {
+        const { data, error } = await _sb.from('factura_items').select('*').in('factura_id', ids);
+        if (error) { console.error('[ARJ] items fiscal:', error); notif('Error trayendo el detalle', 'error'); return; }
+        items = data || [];
+      }
+      const porFactura = {};
+      items.forEach(it => { (porFactura[it.factura_id] = porFactura[it.factura_id] || []).push(it); });
+
+      // ── CSV 1: ventas ──
+      const V = [];
+      V.push(['LIBRO DE VENTAS — ARJ / FINARMA C.A.']);
+      V.push(['RIF emisor', 'J-29620983-9']);
+      V.push(['Período', R.etq]);
+      V.push(['Generado', new Date().toLocaleString('es-VE'), 'por', estado.usuario]);
+      V.push(['NOTA', 'IVA exento — Decreto 126, Art. 63, Num. 02']);
+      V.push(['NOTA', 'Bs cobrado incluye colchon sobre BCV. Bs a BCV es la conversion oficial. Verificar con el contador cual corresponde.']);
+      V.push([]);
+      V.push(['Fecha', 'Numero', 'Empresa', 'RIF cliente', 'Cliente', 'Direccion', 'Vendedor',
+        'Tipo pago', 'Estado', 'Pidio fiscal', 'Total USD', 'Tasa BCV', 'Factor Bs',
+        'Total Bs cobrado', 'Total Bs a BCV', 'Diferencia Bs', 'Saldo pendiente USD']);
+
+      let tUSD = 0, tBsCob = 0, tBsBcv = 0;
+      facts.forEach(f => {
+        const anulada = f.estado === 'anulada';
+        const usd = anulada ? 0 : (f.total || 0);
+        const tbcv = f.tasa_bcv || 0;
+        const fac = (f.factor_bs != null && f.factor_bs > 0) ? parseFloat(f.factor_bs) : 1;
+        const bsCob = usd * fac * tbcv;
+        const bsBcv = usd * tbcv;
+        tUSD += usd; tBsCob += bsCob; tBsBcv += bsBcv;
+        V.push([
+          f.fecha, f.num, f.empresa === 'directa' ? 'Venta Directa' : 'Distribuidora',
+          f.cliente_rif_snap || '', f.cliente_nombre_snap || f.cliente || '',
+          f.cliente_dir_snap || '', f.vendedor || '',
+          f.tipo_pago || '', (f.estado || '').toUpperCase(), f.pidio_fiscal ? 'SI' : 'no',
+          usd.toFixed(2), tbcv.toFixed(2), fac.toFixed(4),
+          bsCob.toFixed(2), bsBcv.toFixed(2), (bsCob - bsBcv).toFixed(2),
+          (f.saldo_pendiente || 0).toFixed(2)
+        ]);
+      });
+      V.push([]);
+      V.push(['TOTALES (sin anuladas)', '', '', '', '', '', '', '', '', '',
+        tUSD.toFixed(2), '', '', tBsCob.toFixed(2), tBsBcv.toFixed(2), (tBsCob - tBsBcv).toFixed(2), '']);
+
+      // ── CSV 2: detalle por renglón ──
+      const D = [];
+      D.push(['DETALLE DE RENGLONES — ARJ / FINARMA C.A.']);
+      D.push(['Periodo', R.etq]);
+      D.push([]);
+      D.push(['Fecha', 'Numero', 'Estado factura', 'Codigo', 'Descripcion', 'Cantidad',
+        'Precio unit USD', 'Total linea USD', 'Total linea Bs cobrado', 'Total linea Bs a BCV']);
+      facts.forEach(f => {
+        const tbcv = f.tasa_bcv || 0;
+        const fac = (f.factor_bs != null && f.factor_bs > 0) ? parseFloat(f.factor_bs) : 1;
+        (porFactura[f.id] || []).forEach(it => {
+          const tot = it.total_linea || 0;
+          D.push([f.fecha, f.num, (f.estado || '').toUpperCase(), it.cod_alt, it.descripcion,
+            it.cantidad, (it.precio_unitario || 0).toFixed(2), tot.toFixed(2),
+            (tot * fac * tbcv).toFixed(2), (tot * tbcv).toFixed(2)]);
+        });
+      });
+
+      const sufijo = tipo === 'dia' ? _hoyArchivo() : (document.getElementById('exp-desde').value + '_a_' + document.getElementById('exp-hasta').value);
+      _descargarCSV('ARJ_fiscal_ventas_' + sufijo + '.csv', V);
+      // Pausa breve: dos descargas seguidas pueden bloquearse en el navegador.
+      setTimeout(() => _descargarCSV('ARJ_fiscal_detalle_' + sufijo + '.csv', D), 700);
+
+      const detalle = `Exportó reporte fiscal ${R.etq}: ${facts.length} facturas, ${fmtUSD(tUSD)}`;
+      logBitacora('inventario', detalle, true);
+      _sbLogBitacora(estado.usuario, estado.empresa, 'inventario', detalle, true);
+      try { localStorage.setItem('arj_ultimo_export', new Date().toISOString()); } catch (e) { }
+
+      renderExportFiscal();
+      notif(`${facts.length} facturas exportadas (2 archivos)`, 'success');
+    }
+
+    // KPIs y tabla de la pantalla fiscal — antes estaban en 0 fijo en el HTML.
+    function renderExportFiscal() {
+      const hoy = new Date();
+      const d0 = new Date(hoy.getFullYear(), hoy.getMonth(), hoy.getDate());
+      const d1 = new Date(d0.getTime() + 86400000);
+      const delDia = _fiscalFacturas(d0, d1).filter(f => f.estado !== 'anulada');
+      const conF = delDia.filter(f => f.pidio_fiscal);
+      const sinF = delDia.filter(f => !f.pidio_fiscal);
+      const sum = a => a.reduce((x, f) => x + (f.total || 0), 0);
+
+      const set = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+      set('exp-kpi-nofiscal', sinF.length); set('exp-kpi-nofiscal-sub', fmtUSD(sum(sinF)));
+      set('exp-kpi-fiscal', conF.length); set('exp-kpi-fiscal-sub', fmtUSD(sum(conF)));
+      set('exp-resumen-dia', `${delDia.length} ventas · ${fmtUSD(sum(delDia))}`);
+
+      let ultimo = null;
+      try { ultimo = localStorage.getItem('arj_ultimo_export'); } catch (e) { }
+      set('exp-kpi-ultimo', ultimo ? new Date(ultimo).toLocaleDateString('es-VE') : '—');
+      set('exp-kpi-ultimo-sub', ultimo ? new Date(ultimo).toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' }) : 'aún sin reportes');
+
+      // "Pendientes" = facturas emitidas después del último export.
+      const corte = ultimo ? new Date(ultimo) : null;
+      const pend = (TODAS_FACTURAS || []).filter(f =>
+        f.estado !== 'anulada' && f.fecha_raw && (!corte || new Date(f.fecha_raw) > corte));
+      set('kpi-pendientes-exp', pend.length);
+
+      const tb = document.getElementById('ventas-pendientes-body');
+      if (tb) {
+        const lista = pend.slice(0, 40);
+        tb.innerHTML = lista.length ? lista.map(f => `<tr>
+      <td>${f.num}</td>
+      <td>${f.fecha}</td>
+      <td>${f.cliente_nombre_snap || f.cliente || ''}</td>
+      <td>${f.vendedor || ''}</td>
+      <td class="num">${fmtUSD(f.total || 0)}</td>
+      <td>${f.pidio_fiscal ? '<span style="color:var(--navy);font-weight:600">SÍ</span>' : '<span style="color:var(--dgray)">no</span>'}</td>
+      <td>${(f.estado || '').toUpperCase()}</td>
+    </tr>`).join('')
+          : '<tr><td colspan="7" style="text-align:center;color:var(--dgray);padding:16px">No hay ventas pendientes de exportar</td></tr>';
       }
     }
 
@@ -11036,6 +11399,9 @@ GEN-3401    5"
       { id: 'contador', label: 'Contador', clas: 'opex', hint: 'Gasto del mes' },
       { id: 'bancos', label: 'Bancos', clas: 'opex', hint: 'Comisiones bancarias — gasto del mes' },
       { id: 'retiro', label: 'Retiro del dueño', clas: 'no_gasto', hint: 'Movimiento de capital — no es gasto' },
+      // v13.8: usada por las notas de crédito. No es gasto: es plata que el
+      // cliente ya había pagado y se le regresa.
+      { id: 'dev_cliente', label: 'Devolución a cliente', clas: 'no_gasto', hint: 'Nota de crédito — no es gasto' },
       { id: 'otros', label: 'Otros', clas: 'opex', hint: 'Gasto del mes' }
     ];
 
@@ -11167,9 +11533,20 @@ GEN-3401    5"
 
       // KPIs — solo lo que afecta caja y no está anulado
       let entro = 0, salio = 0, nE = 0, nS = 0;
+      // v13.7: el total de "Salió" mezclaba sueldos con compra de mercancía y con
+      // el retiro del dueño. Salir de caja y ser gasto son cosas distintas:
+      // comprar inventario baja la caja pero no la utilidad. Se desglosa.
+      const cls = { opex: 0, inventario: 0, capex: 0, no_gasto: 0 };
       MOVIMIENTOS.forEach(m => {
         if (m.anulado || !m.afecta_caja) return;
-        if (m.tipo === 'entrada') { entro += m.monto_usd; nE++; } else { salio += m.monto_usd; nS++; }
+        if (m.tipo === 'entrada') { entro += m.monto_usd; nE++; }
+        else {
+          salio += m.monto_usd; nS++;
+          // Sin clasificación (movimientos viejos) cae en opex: es el supuesto
+          // conservador — cuenta como gasto y no infla la utilidad.
+          const c = cls[m.clasificacion] !== undefined ? m.clasificacion : 'opex';
+          cls[c] += m.monto_usd;
+        }
       });
       const saldo = entro - salio;
       set('kpi-mov-entro', fmtUSD(entro));
@@ -11179,6 +11556,20 @@ GEN-3401    5"
       set('kpi-mov-saldo', fmtUSD(saldo));
       const elSaldo = document.getElementById('kpi-mov-saldo');
       if (elSaldo) elSaldo.style.color = saldo < 0 ? 'var(--red)' : 'var(--navy)';
+
+      // Desglose de salidas
+      const card = document.getElementById('mov-desglose-card');
+      if (card) card.style.display = salio > 0 ? '' : 'none';
+      ['opex', 'inventario', 'capex', 'no_gasto'].forEach(k => set('mov-cls-' + k, fmtUSD(cls[k])));
+      const nota = document.getElementById('mov-desglose-nota');
+      if (nota) {
+        const noGasto = cls.inventario + cls.capex + cls.no_gasto;
+        nota.innerHTML = (salio > 0 && noGasto > 0)
+          ? `<div style="background:var(--lgreen);border-left:3px solid var(--green);border-radius:6px;padding:9px 12px;font-size:11.5px;color:#1B5E20">
+        <i class="ti ti-info-circle"></i> De los <strong>${fmtUSD(salio)}</strong> que salieron de caja, solo <strong>${fmtUSD(cls.opex)}</strong> son gasto que baja la utilidad. Los otros ${fmtUSD(noGasto)} siguen siendo tuyos: están en mercancía, en el local o se los llevó el dueño.
+      </div>`
+          : '';
+      }
 
       if (MOVIMIENTOS.length === 0) {
         cont.innerHTML = '<div class="card" style="text-align:center;color:var(--dgray);padding:28px"><i class="ti ti-inbox" style="font-size:28px;display:block;margin-bottom:8px;opacity:.5"></i>Sin movimientos en este período.</div>';
