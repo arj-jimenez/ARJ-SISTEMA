@@ -5622,13 +5622,16 @@ GEN-3401    5"
       let subtotal = 0;
       estado.items.forEach(it => { it.subtotal = it.cant * it.precio; subtotal += it.subtotal; });
 
-      // Descuento manual
-      const descManual = parseFloat(document.getElementById('desc-manual-pct')?.value) || 0;
-      const motivoDesc = document.getElementById('desc-manual-motivo')?.value || '';
+      // Descuento manual (v13.9). Antes se leían los IDs 'desc-manual-pct' y
+      // 'desc-manual-motivo', que NO EXISTEN en el HTML: descuento_manual se
+      // guardaba en 0 en todas las facturas. La verdad vive en estado.dto_manual.
+      // Los renglones YA salen rebajados de actualizarPreciosPorTier(); volver a
+      // multiplicar el subtotal aquí sería descontar DOS VECES. Solo se registra.
+      const descManual = (estado.empresa === 'directa' && estado.dto_manual > 0) ? estado.dto_manual : 0;
+      const motivoDesc = descManual > 0 ? (estado.dto_motivo || '') : '';
       if (descManual > 0 && estado.rol !== 'gerente') {
         notif('Solo el gerente puede aplicar descuentos manuales', 'error'); return;
       }
-      if (descManual > 0) subtotal = subtotal * (1 - descManual / 100);
 
       // Validar pagos si es contado
       if (tipoPago === 'contado') {
@@ -6447,6 +6450,23 @@ GEN-3401    5"
       return Math.round(base * PRECIOS_TIER[t] * 100) / 100;
     }
     // ═══════════════════════════════════════════════════════════════
+    // PRECIO BASE de un renglón (v13.9) — la base sobre la que se
+    // calcula el descuento manual. Jerarquía:
+    //   1. precio cotizado congelado (precio_fijo)
+    //   2. precio_manual del producto
+    //   3. fórmula precioPublico(fob)
+    // Antes el descuento se calculaba SIEMPRE sobre precioPublico(fob),
+    // ignorando precio_manual (40 productos) y los precios cotizados.
+    // ═══════════════════════════════════════════════════════════════
+    function precioBaseItem(it) {
+      if (it.precio_fijo) {
+        const pb = parseFloat(it.precio_base);
+        return (isFinite(pb) && pb > 0) ? pb : it.precio; // congelado al cotizar
+      }
+      if (it.precio_manual != null && it.precio_manual > 0) return it.precio_manual;
+      return precioPublico(it.fob);
+    }
+    // ═══════════════════════════════════════════════════════════════
     // LISTA DE PRECIOS DESCARGABLE (CSV + PDF)
     // Regla de oro: precio_manual manda tal cual; si no, fórmula + redondeo bonito
     // ═══════════════════════════════════════════════════════════════
@@ -6938,11 +6958,11 @@ GEN-3401    5"
     function previewDtoManual() {
       const pct = parseFloat(document.getElementById('dto-manual-pct').value) || 0;
       const prev = document.getElementById('dto-manual-preview');
-      const subtotal = estado.items.reduce((a, i) => a + i.cant * precioPublico(i.fob), 0);
+      const subtotal = estado.items.reduce((a, i) => a + i.cant * precioBaseItem(i), 0);
       if (pct <= 0) { prev.innerHTML = 'Sin descuento: se cobra precio público.'; return; }
       if (pct > 50) { prev.innerHTML = '<span style="color:var(--red)">El descuento máximo es 50%.</span>'; return; }
       const ahorro = subtotal * pct / 100;
-      prev.innerHTML = `Subtotal público: <strong>${fmtUSD(subtotal)}</strong><br>Descuento ${pct}%: <strong style="color:var(--red)">−${fmtUSD(ahorro)}</strong><br>Total con descuento: <strong style="color:var(--green)">${fmtUSD(subtotal - ahorro)}</strong>`;
+      prev.innerHTML = `Subtotal sin descuento: <strong>${fmtUSD(subtotal)}</strong><br>Descuento ${pct}%: <strong style="color:var(--red)">−${fmtUSD(ahorro)}</strong><br>Total con descuento: <strong style="color:var(--green)">${fmtUSD(subtotal - ahorro)}</strong>`;
     }
     function aplicarDescuentoManual() {
       const pct = parseFloat(document.getElementById('dto-manual-pct').value) || 0;
@@ -6951,13 +6971,17 @@ GEN-3401    5"
       if (pct > 0 && !motivo) { notif('Indica el motivo del descuento', 'error'); return; }
       estado.dto_manual = pct;
       estado.dto_motivo = motivo;
-      // Aplicar a los items: precio = público con descuento
-      estado.items.forEach(it => { it.precio = Math.round(precioPublico(it.fob) * (1 - pct / 100) * 100) / 100; });
       const info = document.getElementById('dto-manual-info');
       if (info) info.textContent = pct > 0 ? `−${pct}% aplicado` : '';
-      if (pct > 0) logBitacora('precio', `Aplicó descuento manual ${pct}% a ${estado.cliente.nombre} — motivo: "${motivo}" · Venta Directa`, true);
+      if (pct > 0) {
+        const _msg = `Aplicó descuento manual ${pct}% a ${estado.cliente.nombre} — motivo: "${motivo}" · Venta Directa`;
+        logBitacora('precio', _msg, true);
+        // v13.9: antes solo quedaba en memoria/localStorage — un refresh lo borraba.
+        _sbLogBitacora(estado.usuario, estado.empresa, 'precio', _msg, true);
+      }
       cerrarDescuentoManual();
-      renderItems();
+      // v13.9: una sola ruta de precios — la misma que usa el cambio de tier.
+      actualizarPreciosPorTier();
       recalcular();
       notif(pct > 0 ? `Descuento de ${pct}% aplicado` : 'Descuento removido', 'success');
     }
@@ -6985,9 +7009,13 @@ GEN-3401    5"
     function actualizarPreciosPorTier() {
       const dto = (estado.empresa === 'directa' && estado.dto_manual > 0) ? estado.dto_manual : 0;
       estado.items.forEach(it => {
-        if (it.precio_fijo) return; // precio cotizado en presupuesto: se honra, no se recalcula
         if (dto > 0) {
-          it.precio = Math.round(precioPublico(it.fob) * (1 - dto / 100) * 100) / 100;
+          // v13.9: descuento manual sobre el precio BASE (cotizado > manual > fórmula).
+          // Aplica a TODOS los renglones, incluidos los cotizados: el congelado
+          // protege contra recálculos automáticos, no contra la decisión del gerente.
+          it.precio = Math.round(precioBaseItem(it) * (1 - dto / 100) * 100) / 100;
+        } else if (it.precio_fijo) {
+          it.precio = precioBaseItem(it); // sin descuento: vuelve al precio cotizado
         } else {
           it.precio = precioConTier(it.fob, estado.tier, it);
         }
@@ -7071,7 +7099,8 @@ GEN-3401    5"
       if (ex) { ex.cant += 1; }
       else {
         const dto = (estado.empresa === 'directa' && estado.dto_manual > 0) ? estado.dto_manual : 0;
-        const precio = dto > 0 ? Math.round(precioPublico(p.fob) * (1 - dto / 100) * 100) / 100 : precioConTier(p.fob, estado.tier, p);
+        const _basePr = (p.precio_manual != null && p.precio_manual > 0) ? p.precio_manual : precioPublico(p.fob);
+        const precio = dto > 0 ? Math.round(_basePr * (1 - dto / 100) * 100) / 100 : precioConTier(p.fob, estado.tier, p);
         estado.items.push({
           producto_id: p.id, cod: p.cod_alt, // v12: id para Supabase + alias corto
           cod_alt: p.cod_alt, cod_orig: p.cod_orig, desc: p.desc, marca: p.marca, fob: p.fob,
@@ -9310,7 +9339,7 @@ GEN-3401    5"
         return {
           cod: it.cod_alt, cod_alt: it.cod_alt, cod_orig: p ? p.cod_orig : '', desc: it.desc, marca: it.marca, fob: it.fob,
           stock_vd: p ? p.stock_vd : 0, stock_dist: p ? p.stock_dist : 0, precio_manual: p ? p.precio_manual : null,
-          cant: it.cant, precio: it.precio, precio_fijo: true
+          cant: it.cant, precio: it.precio, precio_base: it.precio, precio_fijo: true
         };
       });
       estado.pagos = [];
@@ -12304,6 +12333,7 @@ function renderHistorial(){
             desc: it.descripcion,
             cant: it.cantidad,
             precio: parseFloat(it.precio_unitario),
+            precio_base: parseFloat(it.precio_unitario), // v13.9: base congelada para descuentos
             precio_fijo: true, // precio COTIZADO: compromiso comercial, no se recalcula
             fob: parseFloat(it.fob_unitario) || 0,
             subtotal: parseFloat(it.total_linea)
