@@ -3242,7 +3242,7 @@
                 </select>
               </div>
               <div style="flex:1;min-width:150px" id="rec-wrap-prov">
-                <label style="font-size:11px;color:var(--dgray);font-weight:500;display:block;margin-bottom:3px">Solo proveedor</label>
+                <label style="font-size:11px;color:var(--dgray);font-weight:500;display:block;margin-bottom:3px">Solo marca</label>
                 <select class="val-input" id="rec-proveedor" style="width:100%"></select>
               </div>
               <div style="flex:1;min-width:150px">
@@ -3258,6 +3258,13 @@
 
             <div id="rec-aviso-modo"></div>
 
+            <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:8px;flex-wrap:wrap">
+              <div style="flex:1;min-width:170px">
+                <label style="font-size:11px;color:var(--dgray);font-weight:500;display:block;margin-bottom:3px">Traer códigos del sistema por marca</label>
+                <select class="val-input" id="rec-marca" style="width:100%"></select>
+              </div>
+              <button class="btn btn-secondary btn-sm" onclick="recTraerMarca()"><i class="ti ti-download"></i> Traer al cuadro</button>
+            </div>
             <textarea id="rec-texto" placeholder="5198060	12&#10;82025254	4&#10;5191547-2	30"
               style="width:100%;min-height:180px;background:#FFF;border:1px solid var(--border);border-radius:6px;padding:10px;font-size:13px;font-family:ui-monospace,Menlo,Consolas,monospace;resize:vertical"></textarea>
           </div>
@@ -7901,14 +7908,22 @@ GEN-3401    5"
       if (!PRODUCTOS.length) { notif('No hay catálogo cargado', 'error'); return; }
       _recAnalisis = null;
       document.getElementById('rec-texto').value = '';
+      _recLlenarMarcas();
       document.getElementById('rec-ref').value = '';
       _recLlenarEmbarques();
       document.getElementById('rec-modo').value = 'conteo';
       document.getElementById('rec-destino').value = 'dist';
-      // Lista de proveedores presentes en el catalogo, para acotar el conteo.
-      const provs = [...new Set(PRODUCTOS.map(p => (p.proveedor || '').trim()).filter(x => x))].sort();
+      // v13.11: se acota por MARCA, no por proveedor. El campo proveedor está
+      // vacío en casi todo el catálogo, así que el filtro no servía y el conteo
+      // comparaba contra los 373 productos: salían cientos de "no contados".
+      const provs = [...new Set(PRODUCTOS.filter(p => p.activo !== false)
+        .map(p => (p.marca || '').trim()).filter(x => x))].sort();
       document.getElementById('rec-proveedor').innerHTML =
-        '<option value="">Todos</option>' + provs.map(x => `<option value="${x}">${x}</option>`).join('');
+        '<option value="">Todas las marcas</option>'
+        + provs.map(x => {
+            const n = PRODUCTOS.filter(p => (p.marca || '').trim() === x && p.activo !== false).length;
+            return `<option value="${x}">${x} (${n})</option>`;
+          }).join('');
       recAvisoModo();
       recVolver();
       document.getElementById('modal-recepcion').classList.add('show');
@@ -7982,6 +7997,35 @@ GEN-3401    5"
     // reescribe nada: el costo de lo ya recibido es historia, no formula.
     // Un producto que YA tenia otro embarque NO se toca: se reporta aparte.
     // ═══════════════════════════════════════════════════════════════
+    // Trae al cuadro los códigos de una marca con el stock que YA tiene el
+    // sistema. Sirve cuando el conteo ya se cargó a mano y solo falta sellar
+    // el costo: se pega, se revisa y se aplica sin teclear nada.
+    function _recLlenarMarcas() {
+      const sel = document.getElementById('rec-marca');
+      if (!sel) return;
+      const marcas = [...new Set(PRODUCTOS.filter(p => p.activo !== false)
+        .map(p => (p.marca || '').trim()).filter(Boolean))].sort();
+      sel.innerHTML = '<option value="">— Elegir marca —</option>'
+        + marcas.map(m => {
+            const n = PRODUCTOS.filter(p => (p.marca || '').trim() === m && p.activo !== false).length;
+            return `<option value="${m}">${m} (${n})</option>`;
+          }).join('');
+    }
+
+    function recTraerMarca() {
+      const m = document.getElementById('rec-marca').value;
+      if (!m) { notif('Elige una marca primero', 'error'); return; }
+      const destino = document.getElementById('rec-destino').value;
+      const campo = destino === 'vd' ? 'stock_vd' : 'stock_dist';
+      const lista = PRODUCTOS.filter(p => (p.marca || '').trim() === m && p.activo !== false);
+      if (!lista.length) { notif('No hay productos de ' + m, 'error'); return; }
+      const ta = document.getElementById('rec-texto');
+      const txt = lista.map(p => `${p.cod_alt}\t${parseInt(p[campo]) || 0}`).join('\n');
+      if (ta.value.trim() && !confirm('El cuadro ya tiene texto. ¿Reemplazarlo?')) return;
+      ta.value = txt;
+      notif(`${lista.length} código(s) de ${m} traídos con su stock actual`, 'success');
+    }
+
     function _recLlenarEmbarques() {
       const sel = document.getElementById('rec-embarque');
       if (!sel) return;
@@ -8072,7 +8116,7 @@ GEN-3401    5"
         const noContados = PRODUCTOS.filter(p =>
           (p[campo] || 0) > 0
           && !contado[p.cod_alt]
-          && (!prov || (p.proveedor || '').trim() === prov)
+          && (!prov || (p.marca || '').trim() === prov)
         ).map(p => ({ prod: p, cod: p.cod_alt, sistema: p[campo] || 0, fisico: 0, dif: -(p[campo] || 0) }));
 
         _recAnalisis = { tipo: 'conteo', cuadran, faltan, sobran, noContados, desconocidos, malas, campo, destino, nomDest, prov };
@@ -8130,22 +8174,30 @@ GEN-3401    5"
     function _recPintarConteo() {
       const A = _recAnalisis;
       // Valor del descuadre a costo landed: es la plata que esta en juego.
-      const vFalta = A.faltan.reduce((a, r) => a + costoLanded(r.prod) * Math.abs(r.dif), 0)
-        + A.noContados.reduce((a, r) => a + costoLanded(r.prod) * Math.abs(r.dif), 0);
+      // v13.11: "Falta" y "No contados" son cosas DISTINTAS y ya no se suman.
+      // Falta = lo contaste y salió menos -> SÍ se ajusta al aplicar.
+      // No contados = ni siquiera está en tu lista -> NO se toca.
+      // Antes se mostraban juntos y un conteo de 17 piezas anunciaba 345 faltantes.
+      const vFalta = A.faltan.reduce((a, r) => a + costoLanded(r.prod) * Math.abs(r.dif), 0);
+      const vNoCont = A.noContados.reduce((a, r) => a + costoLanded(r.prod) * Math.abs(r.dif), 0);
       const vSobra = A.sobran.reduce((a, r) => a + costoLanded(r.prod) * r.dif, 0);
-      const nFalta = A.faltan.length + A.noContados.length;
+      const nFalta = A.faltan.length;
 
       document.getElementById('rec-resumen').innerHTML = `
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px">
       ${_recKpi('Cuadran', A.cuadran.length, 'var(--green)', 'var(--lgreen)')}
       ${_recKpi('Falta', nFalta, nFalta ? 'var(--red)' : 'var(--dgray)', nFalta ? '#FEF5F5' : 'var(--gray)')}
       ${_recKpi('Sobra', A.sobran.length, A.sobran.length ? '#854F0B' : 'var(--dgray)', A.sobran.length ? 'var(--lgold)' : 'var(--gray)')}
+      ${_recKpi('No contados', A.noContados.length, 'var(--dgray)', 'var(--gray)')}
       ${_recKpi('Descuadre', fmtUSD(vFalta - vSobra), (vFalta - vSobra) > 0 ? 'var(--red)' : 'var(--navy)', 'var(--lblue)')}
     </div>
     <div style="font-size:11px;color:var(--dgray);margin-top:6px">
-      Almacén: <strong>${A.nomDest}</strong>${A.prov ? ' · Proveedor: <strong>' + A.prov + '</strong>' : ''} ·
+      Almacén: <strong>${A.nomDest}</strong>${A.prov ? ' · Marca: <strong>' + A.prov + '</strong>' : ''} ·
       Faltante ${fmtUSD(vFalta)} · Sobrante ${fmtUSD(vSobra)} — valorado a costo landed
-    </div>`;
+    </div>
+    ${A.noContados.length ? `<div style="background:var(--gray);border-radius:6px;padding:8px 11px;margin-top:8px;font-size:11.5px;color:var(--dgray)">
+      <i class="ti ti-eye-off"></i> Los <strong>${A.noContados.length} no contados</strong> (${fmtUSD(vNoCont)}) <strong>NO se van a tocar</strong> —
+      no están en tu lista. Para que no aparezcan, usa el filtro <strong>"Solo marca"</strong> arriba.</div>` : ''}`;
 
       const secc = (titulo, filas, color, bg, icono, nota, colapsado) => {
         if (!filas.length) return '';
@@ -8187,17 +8239,27 @@ GEN-3401    5"
       html += secc('Cuadran perfecto', A.cuadran, 'var(--green)', 'var(--lgreen)', 'circle-check', 'sin diferencia', true);
 
       if (!A.faltan.length && !A.sobran.length && !A.noContados.length) {
+        const nSel = (A.sellar || []).length;
         html = `<div style="text-align:center;padding:24px;color:var(--green)">
       <i class="ti ti-circle-check" style="font-size:40px"></i>
       <div style="font-size:15px;font-weight:600;margin-top:8px">Todo cuadra</div>
-      <div style="font-size:12px;color:var(--dgray)">El conteo coincide con el sistema en los ${A.cuadran.length} productos revisados</div></div>` + html;
+      <div style="font-size:12px;color:var(--dgray)">El conteo coincide con el sistema en los ${A.cuadran.length} productos revisados</div>
+      ${nSel ? `<div style="font-size:12.5px;color:var(--navy);margin-top:10px;background:var(--lblue);border-radius:6px;padding:9px 12px;display:inline-block">
+        Falta sellar el costo de <strong>${nSel}</strong> producto(s) con <strong>${A.emb.codigo}</strong> — usa el botón de abajo.</div>` : ''}
+      </div>` + html;
       }
 
       document.getElementById('rec-tabla').innerHTML = html;
       document.getElementById('rec-btn-exportar').style.display = '';
+      // v13.11: el botón también debe salir cuando NO hay ajuste de stock pero
+      // sí hay costos por sellar. Un conteo que cuadra perfecto es el caso normal
+      // cuando el stock ya se cargó a mano y lo único que falta es el sellado.
       const hayAjuste = A.faltan.length + A.sobran.length > 0;
-      document.getElementById('rec-btn-aplicar').style.display = hayAjuste ? '' : 'none';
-      document.getElementById('rec-btn-aplicar').innerHTML = '<i class="ti ti-adjustments"></i> Ajustar sistema al físico';
+      const haySello = (A.sellar || []).length > 0;
+      document.getElementById('rec-btn-aplicar').style.display = (hayAjuste || haySello) ? '' : 'none';
+      document.getElementById('rec-btn-aplicar').innerHTML = hayAjuste
+        ? '<i class="ti ti-adjustments"></i> Ajustar sistema al físico'
+        : `<i class="ti ti-ship"></i> Sellar costo de ${(A.sellar || []).length} producto(s)`;
     }
 
     function recExportar() {
