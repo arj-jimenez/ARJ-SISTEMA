@@ -6620,14 +6620,19 @@ GEN-3401    5"
       // ponen a mano YA en $ BCV: el 25% de compra de divisas vive dentro del
       // costo, y el precio sale de multiplicar ese costo. Aplicar ademas la
       // brecha era cobrarla DOS VECES — un precio de $30 se cobraba como $36,27.
-      // Ahora solo queda el resguardo: un margen chico por el riesgo de que la
-      // tasa se mueva entre la venta y la compra de divisas. El billete es
-      // divisa inmediata; el bolivar tiene friccion, y esto la cobra.
+      // v13.13 RESGUARDO DESACTIVADO POR DECISION DE JJ. El precio en Bs ahora
+      // es exactamente el precio de lista a tasa BCV: un solo precio anunciado,
+      // sin recargo por moneda. Motivo doble: friccion comercial (no se puede
+      // decir que vale $55 y cobrar otra cosa en Bs) y exposicion con SUNDDE,
+      // que exige cobrar a la tasa oficial del dia. El costo asumido son ~2
+      // puntos de utilidad por venta en bolivares.
+      // Para reactivarlo: subir RESGUARDO_BS de nuevo a 1.02. Nada mas.
       return RESGUARDO_BS;
     }
 
     // El resguardo sobre las ventas en bolivares. Se toca AQUI, en un solo lugar.
-    const RESGUARDO_BS = 1.02;
+    // 1.00 = sin recargo. El precio en Bs = precio de lista x tasa BCV.
+    const RESGUARDO_BS = 1.00;
 
     // ═══════════════════════════════════════════════════════════════
     // PAGO EN DIVISAS (v13.12)
@@ -6722,12 +6727,24 @@ GEN-3401    5"
     // Facturas viejas sin factor_bs conservan el calculo con el que
     // nacieron: se reconstruye con SUS tasas, no con las de hoy.
     // ═══════════════════════════════════════════════════════════════
+    // v13.13 Fecha en que el sistema paso al modelo de precios en $BCV. Antes de
+    // esto los precios eran en $ paralelo y el factor convertia par->BCV. Despues,
+    // el precio YA esta en BCV y el factor es solo resguardo.
+    const CORTE_MODELO_BCV = new Date('2026-08-01T00:00:00Z').getTime();
+
     function factorBsDe(f) {
       if (!f) return colchonFactor();
       const fb = parseFloat(f.factor_bs);
       if (isFinite(fb) && fb > 0) return fb;
-      const tp = parseFloat(f.tasa_par), tb = parseFloat(f.tasa_bcv);
-      if (isFinite(tp) && tp > 0 && isFinite(tb) && tb > 0) return colchonFactorCon(tp, tb);
+      // v13.13 SIN factor_bs: la formula vieja (paralelo/BCV x colchon) solo vale
+      // para facturas nacidas ANTES del cambio de modelo. Aplicarla a una factura
+      // moderna le cobraria ~21% de mas al cliente. Si no se puede determinar la
+      // fecha, se asume moderna: errar hacia NO cobrar de mas.
+      const tEmision = f.fecha_raw ? new Date(f.fecha_raw).getTime() : NaN;
+      if (isFinite(tEmision) && tEmision < CORTE_MODELO_BCV) {
+        const tp = parseFloat(f.tasa_par), tb = parseFloat(f.tasa_bcv);
+        if (isFinite(tp) && tp > 0 && isFinite(tb) && tb > 0) return colchonFactorCon(tp, tb);
+      }
       return colchonFactor();
     }
     function fmtUSD(n) { return '$ ' + (Math.round(n * 100) / 100).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
