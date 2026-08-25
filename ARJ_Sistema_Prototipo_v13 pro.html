@@ -1624,6 +1624,23 @@
       cursor: help
     }
 
+    /* ── Banner de tasas sin confirmar (v13.12) ── */
+    #banner-tasas {
+      display: none; align-items: center; gap: 12px;
+      background: #FCEBEB; border-bottom: 2px solid var(--red);
+      padding: 10px 18px; font-size: 13px; color: #7A1F1F;
+    }
+    #banner-tasas.show { display: flex }
+    #banner-tasas .bt-txt { flex: 1; line-height: 1.45 }
+    #banner-tasas .bt-txt strong { color: var(--red) }
+    #banner-tasas .bt-sub { font-size: 11.5px; opacity: 0.85; margin-top: 2px }
+    #banner-tasas button {
+      flex: none; padding: 7px 14px; border-radius: 6px; border: none;
+      background: var(--red); color: #FFF; font-size: 12.5px; font-weight: 600;
+      cursor: pointer; font-family: inherit;
+    }
+    #banner-tasas button:hover { opacity: 0.88 }
+
     /* Restricciones de columnas según rol */
     .col-restricted {
       display: none
@@ -3173,6 +3190,16 @@
       </div>
       <div style="padding:20px;text-align:center;color:var(--dgray);font-size:13px">Sin notificaciones</div>
     </div>
+    <!-- ═══ BANNER DE TASAS SIN CONFIRMAR (v13.12) ═══ -->
+    <div id="banner-tasas">
+      <i class="ti ti-alert-triangle" style="font-size:20px;flex:none"></i>
+      <div class="bt-txt">
+        <div id="bt-msg"><strong>Las tasas no se han confirmado hoy.</strong></div>
+        <div class="bt-sub" id="bt-sub"></div>
+      </div>
+      <button onclick="navTo('config')"><i class="ti ti-settings"></i> Ir a Tasas</button>
+    </div>
+
     <!-- ═══════════════════════════════════════════════════════════════ -->
     <!-- NAV -->
     <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -3670,7 +3697,12 @@ GEN-3401    5"
             <div class="total-row"><span>Subtotal</span><span id="t-subtotal">$ 0,00</span></div>
             <div class="total-row iva-zero"><span><i class="ti ti-info-circle"></i> IVA (exento)</span><span>$
                 0,00</span></div>
-            <div class="total-row big"><span>Si paga en USD</span><span id="t-total">$ 0,00</span></div>
+            <div class="total-row big"><span>Si paga en USD <span id="t-usd-badge" data-role="gerente"
+                  onclick="abrirDtoDivisa()" title="Descuento por pago en divisas"
+                  style="font-size:9px;background:var(--blue);color:#FFF;padding:1px 6px;border-radius:8px;font-weight:600;cursor:pointer">−0.0%</span></span><span
+                id="t-total">$ 0,00</span></div>
+            <div id="t-usd-aviso" data-role="gerente"
+              style="display:none;font-size:10px;color:#FFD9D9;background:rgba(200,40,40,.35);padding:4px 8px;border-radius:4px;margin:2px 0 4px;line-height:1.4"></div>
             <div class="total-row big" style="background:#FDF6E3;margin:4px -14px;padding:8px 14px;border-radius:4px">
               <span style="color:#5D4037">Si paga en Bs <span id="t-factor-badge" data-role="gerente"
                   style="font-size:9px;background:var(--gold);color:#FFF;padding:1px 6px;border-radius:8px;font-weight:600">×1.30</span></span><span
@@ -4607,9 +4639,12 @@ GEN-3401    5"
               type="number" step="0.01" onchange="actualizarTasas()"></div>
           <div class="config-row"><label>Euro</label><input class="val-input" value="232.40" type="number" step="0.01">
           </div>
-          <div class="config-row" style="border:none;padding-top:14px">
-            <button class="btn btn-secondary btn-sm" style="margin:0 auto"><i class="ti ti-refresh"></i> Actualizar
-              desde BCV.org.ve</button>
+          <div class="config-row" style="border:none;padding-top:14px;flex-direction:column;align-items:stretch;gap:8px">
+            <div id="cfg-tasas-estado" style="font-size:11.5px;text-align:center;line-height:1.5"></div>
+            <button class="btn btn-primary btn-sm" style="margin:0 auto" onclick="confirmarTasasHoy()"><i
+                class="ti ti-check"></i> Confirmar tasas de hoy</button>
+            <button class="btn btn-secondary btn-sm" style="margin:0 auto" onclick="avisoTasaAuto()"><i
+                class="ti ti-refresh"></i> Traer desde BCV.org.ve</button>
           </div>
         </div>
 
@@ -5633,6 +5668,7 @@ GEN-3401    5"
         if (!e5 && cfg) {
           estado.tasa_par = parseFloat(cfg.tasa_par) || estado.tasa_par;
           estado.tasa_bcv = parseFloat(cfg.tasa_bcv) || estado.tasa_bcv;
+          estado.tasas_actualizadas = cfg.tasas_actualizadas || null; // v13.12
           estado.factor_default = parseFloat(cfg.factor_landed_default) || FACTOR_LANDED_FALLBACK;
           const _inpF = document.getElementById('cfg-factor');
           if (_inpF) _inpF.value = estado.factor_default;
@@ -5669,6 +5705,10 @@ GEN-3401    5"
         }
 
         _supabaseConectado = true;
+        // v13.12: el banner se evalua DESPUES de cargar la config, no antes:
+        // si se evaluara al arrancar, estado.tasas_actualizadas todavia es null
+        // y saltaria siempre, incluso recien confirmadas.
+        try { revisarTasasDelDia(); } catch (e) { console.error('[ARJ] banner tasas:', e); }
         console.log('[ARJ] Datos cargados desde Supabase: ' + PRODUCTOS.length + ' productos, ' + CLIENTES.length + ' clientes, ' + FACTURAS_COBRAR.length + ' CxC, ' + VENTAS_RECIENTES.length + ' ventas recientes');
         return true;
       } catch (err) {
@@ -5760,16 +5800,45 @@ GEN-3401    5"
         notif('Solo el gerente puede aplicar descuentos manuales', 'error'); return;
       }
 
-      // Validar pagos si es contado
+      // v13.12 BUG CORREGIDO. Antes hacia `m / estado.tasa_par` para los pagos en
+      // Bs: el sistema COBRABA a tasa BCV y ACREDITABA a tasa paralelo. Un cliente
+      // que pagaba EXACTO lo que decia la pantalla quedaba corto y la emision se
+      // bloqueaba ("Los pagos no cubren el total"). En una factura de $500 el hueco
+      // era de $69. Ahora se usa el mismo modelo de fracciones de recalcular():
+      // cada pago se mide contra el precio anunciado EN SU MONEDA.
+      const _factorBs = colchonFactor();
+      const _totalBs = subtotal * _factorBs * estado.tasa_bcv;
+      const _totalUsd = totalEnDivisas(subtotal);
+      let _fraccion = 0;
+      estado.pagos.forEach(p => {
+        const m = parseFloat(p.monto) || 0;
+        if (subtotal <= 0) return;
+        _fraccion += p.moneda === 'USD'
+          ? (_totalUsd > 0 ? m / _totalUsd : 0)
+          : (_totalBs > 0 ? m / _totalBs : 0);
+      });
       if (tipoPago === 'contado') {
-        let totalPagos = 0;
-        estado.pagos.forEach(p => {
-          const m = parseFloat(p.monto) || 0;
-          totalPagos += p.moneda === 'USD' ? m : m / estado.tasa_par;
-        });
-        if (totalPagos < subtotal - 1) {
-          notif('Los pagos no cubren el total. Faltan $' + (subtotal - totalPagos).toFixed(2), 'error'); return;
+        const _faltaUSD = subtotal * (1 - _fraccion);
+        if (_faltaUSD > 1) {
+          notif('Los pagos no cubren el total. Faltan $' + _faltaUSD.toFixed(2), 'error'); return;
         }
+      }
+
+      // v13.12 TRAZABILIDAD DEL DESCUENTO POR DIVISAS.
+      // Solo lo que se dio POR ENCIMA de la brecha es descuento de verdad: la
+      // conversion a la brecha no regala nada. Se calcula sobre la parte de la
+      // factura efectivamente pagada en divisas, no sobre el total.
+      let _dtoDivPct = 0, _dtoDivMonto = 0, _pagoEnDivisas = false;
+      estado.pagos.forEach(p => { if (p.moneda === 'USD' && (parseFloat(p.monto) || 0) > 0) _pagoEnDivisas = true; });
+      const _exDiv = dtoDivisaExcedentePct();
+      if (_exDiv > 0 && _totalUsd > 0) {
+        let _fracUsd = 0;
+        estado.pagos.forEach(p => {
+          if (p.moneda === 'USD') _fracUsd += (parseFloat(p.monto) || 0) / _totalUsd;
+        });
+        _fracUsd = Math.min(1, Math.max(0, _fracUsd));
+        _dtoDivPct = _exDiv;
+        _dtoDivMonto = Math.round(subtotal * (_exDiv / 100) * _fracUsd * 100) / 100;
       }
 
       // Mostrar loading
@@ -5816,8 +5885,13 @@ GEN-3401    5"
           fecha_vence: fechaVence,
           estado: tipoPago === 'contado' ? 'pagada' : 'pendiente',
           saldo_pendiente: tipoPago === 'contado' ? 0 : subtotal,
-          descuento_manual: descManual,
-          motivo_descuento: motivoDesc,
+          // v13.12: el descuento por divisas POR ENCIMA de la brecha se suma al
+          // descuento manual y se deja escrito en el motivo. Asi queda en la
+          // factura, en el historial y en el export fiscal, no solo en bitacora.
+          descuento_manual: Math.round((descManual + _dtoDivMonto) * 100) / 100,
+          motivo_descuento: [motivoDesc, _dtoDivMonto > 0
+            ? 'Pago en divisas: ' + _dtoDivPct.toFixed(1) + ' pts sobre la brecha ('
+              + fmtUSD(_dtoDivMonto) + ')' : ''].filter(Boolean).join(' · '),
           pidio_fiscal: pidioFiscal,
           factor_bs: colchonFactor()
         };
@@ -6214,7 +6288,8 @@ GEN-3401    5"
     async function _sbGuardarTasas() {
       if (!_sb || !_supabaseConectado) return;
       const { error } = await _sb.from('configuracion').update({
-        tasa_par: estado.tasa_par, tasa_bcv: estado.tasa_bcv
+        tasa_par: estado.tasa_par, tasa_bcv: estado.tasa_bcv,
+        tasas_actualizadas: estado.tasas_actualizadas || new Date().toISOString()
       }).eq('id', 1);
       if (error) console.error('[ARJ] Error guardando tasas:', error);
     }
@@ -6294,6 +6369,8 @@ GEN-3401    5"
       pagos: [],
       tasa_par: 215.50,
       tasa_bcv: 195.20,
+      tasas_actualizadas: null, // v13.12: cuando se confirmaron por ultima vez
+      dto_divisa: null,         // v13.12: % de dto por pago en divisas (null = usa la brecha)
       factor_default: 1.471,
       costos_fijos_mes: 0,
       costos_fijos_hist: {},
@@ -6538,7 +6615,120 @@ GEN-3401    5"
       return base * (1 + colchon);
     }
     function colchonFactor() {
-      return colchonFactorCon(estado.tasa_par, estado.tasa_bcv);
+      // v13.12 MODO RESGUARDO. Antes devolvia (paralelo/BCV) x (1+colchon), que
+      // convertia un precio en $ PARALELO a $ BCV. Pero los precios de ARJ se
+      // ponen a mano YA en $ BCV: el 25% de compra de divisas vive dentro del
+      // costo, y el precio sale de multiplicar ese costo. Aplicar ademas la
+      // brecha era cobrarla DOS VECES — un precio de $30 se cobraba como $36,27.
+      // Ahora solo queda el resguardo: un margen chico por el riesgo de que la
+      // tasa se mueva entre la venta y la compra de divisas. El billete es
+      // divisa inmediata; el bolivar tiene friccion, y esto la cobra.
+      return RESGUARDO_BS;
+    }
+
+    // El resguardo sobre las ventas en bolivares. Se toca AQUI, en un solo lugar.
+    const RESGUARDO_BS = 1.02;
+
+    // ═══════════════════════════════════════════════════════════════
+    // PAGO EN DIVISAS (v13.12)
+    // Los precios de ARJ estan en $ BCV. Un dolar billete vale mas que un
+    // dolar BCV, asi que para saldar la misma factura hace falta MENOS
+    // efectivo verde. Eso NO es un descuento: es la misma plata en otra
+    // moneda. Descuento de verdad es solo lo que se da POR ENCIMA de la
+    // brecha, y eso se registra aparte en descuento_manual.
+    // ═══════════════════════════════════════════════════════════════
+    function brechaHoy() {
+      const tp = parseFloat(estado.tasa_par), tb = parseFloat(estado.tasa_bcv);
+      if (!isFinite(tp) || tp <= 0 || !isFinite(tb) || tb <= 0) return 1;
+      const b = tp / tb;
+      return b > 0 ? b : 1;
+    }
+
+    // % que equivale exactamente a la brecha: convertir sin regalar ni cobrar de mas.
+    function dtoDivisaNeutro() {
+      const b = brechaHoy();
+      return b > 0 ? (1 - 1 / b) * 100 : 0;
+    }
+
+    // El % vigente: el que puso el gerente, o el neutro si no ha tocado nada.
+    function dtoDivisaPct() {
+      const d = parseFloat(estado.dto_divisa);
+      return (isFinite(d) && d >= 0) ? d : dtoDivisaNeutro();
+    }
+
+    // Cuanto efectivo en divisas salda una factura de `totalBcv`.
+    function totalEnDivisas(totalBcv) {
+      return Math.round(totalBcv * (1 - dtoDivisaPct() / 100) * 100) / 100;
+    }
+
+    // Puntos REGALADOS: lo que se da por encima de la conversion neutra.
+    // Cero cuando el gerente deja el valor por defecto.
+    function dtoDivisaExcedentePct() {
+      const ex = dtoDivisaPct() - dtoDivisaNeutro();
+      return ex > 0.001 ? ex : 0;
+    }
+
+    // ── Modal del descuento en divisas ──
+    function abrirDtoDivisa() {
+      if (estado.rol !== 'gerente') { notif('Solo el gerente puede ajustar el descuento por divisas', 'error'); return; }
+      document.getElementById('dd-neutro').textContent = dtoDivisaNeutro().toFixed(2) + '%';
+      document.getElementById('dd-pct').value = dtoDivisaPct().toFixed(1);
+      _ddPreview();
+      document.getElementById('modal-dto-divisa').classList.add('show');
+    }
+    function cerrarDtoDivisa() { document.getElementById('modal-dto-divisa').classList.remove('show'); }
+    function _ddNeutro() {
+      document.getElementById('dd-pct').value = dtoDivisaNeutro().toFixed(1);
+      _ddPreview();
+    }
+    function _ddPreview() {
+      const el = document.getElementById('dd-preview');
+      if (!el) return;
+      const v = parseFloat(document.getElementById('dd-pct').value);
+      const total = estado.items.reduce((a, i) => a + i.cant * i.precio, 0);
+      if (!isFinite(v) || v < 0) { el.innerHTML = '<span style="color:var(--red)">Escribe un porcentaje válido.</span>'; return; }
+      const neutro = dtoDivisaNeutro();
+      const ex = v - neutro;
+      const cobra = Math.round(total * (1 - v / 100) * 100) / 100;
+      let h = 'Factura de <strong>' + fmtUSD(total) + '</strong> BCV &rarr; cobras <strong>' + fmtUSD(cobra) + '</strong> en efectivo.';
+      if (ex > 0.001) {
+        h += '<br><span style="color:var(--red)"><strong>Regalas ' + ex.toFixed(1) + ' puntos = '
+          + fmtUSD(Math.round(total * (ex / 100) * 100) / 100) + '.</strong> Se registra como descuento.</span>';
+      } else if (ex < -0.001) {
+        h += '<br><span style="color:var(--gold)">Estás ' + Math.abs(ex).toFixed(1)
+          + ' puntos <strong>por debajo</strong> de la brecha: el cliente paga de más por usar efectivo.</span>';
+      } else {
+        h += '<br><span style="color:var(--green)">Conversión exacta. No regalas margen.</span>';
+      }
+      el.innerHTML = h;
+    }
+    function guardarDtoDivisa() {
+      const v = parseFloat(document.getElementById('dd-pct').value);
+      if (!isFinite(v) || v < 0 || v > 60) { notif('El descuento debe estar entre 0 y 60%.', 'error'); return; }
+      estado.dto_divisa = v;
+      const ex = v - dtoDivisaNeutro();
+      _sbLogBitacora('precio', 'Descuento por divisas ajustado a ' + v.toFixed(1) + '%'
+        + (ex > 0.001 ? ' (' + ex.toFixed(1) + ' pts por encima de la brecha)' : ' (conversión a la brecha)'), ex > 0.001);
+      cerrarDtoDivisa();
+      recalcular();
+      notif('Descuento por divisas: ' + v.toFixed(1) + '%', 'success');
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // FACTOR DE UNA FACTURA YA EMITIDA (v13.12)
+    // Una deuda no cambia de monto porque cambio una regla despues de
+    // emitida. El factor se CONGELA al emitir y se lee de ahi; lo que si
+    // se mueve al cobrar es la tasa BCV del dia (anti-descapitalizacion).
+    // Facturas viejas sin factor_bs conservan el calculo con el que
+    // nacieron: se reconstruye con SUS tasas, no con las de hoy.
+    // ═══════════════════════════════════════════════════════════════
+    function factorBsDe(f) {
+      if (!f) return colchonFactor();
+      const fb = parseFloat(f.factor_bs);
+      if (isFinite(fb) && fb > 0) return fb;
+      const tp = parseFloat(f.tasa_par), tb = parseFloat(f.tasa_bcv);
+      if (isFinite(tp) && tp > 0 && isFinite(tb) && tb > 0) return colchonFactorCon(tp, tb);
+      return colchonFactor();
     }
     function fmtUSD(n) { return '$ ' + (Math.round(n * 100) / 100).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
     function fmtBS(n) { return 'Bs. ' + (Math.round(n * 100) / 100).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
@@ -6732,6 +6922,19 @@ GEN-3401    5"
       [pdf, csv].forEach(b => { if (b) { b.disabled = off; b.style.opacity = off ? '0.45' : ''; b.style.cursor = off ? 'not-allowed' : ''; } });
     }
 
+    // v13.12 LEYENDA DE MONEDA (art. 128 Ley del BCV / Convenio Cambiario N.1 de
+    // 2018 / art. 51 Reglamento de la Ley del IVA). Una lista que dice "precios en
+    // USD" a secas, sin declarar moneda de pago ni tasa, no cumple. Se declaran las
+    // tres cosas en una linea: el USD es moneda de CUENTA, el bolivar es la moneda
+    // de PAGO, y cual tasa BCV se uso. Consultar al contador ante cualquier duda.
+    function _lpLeyendaMoneda() {
+      const t = parseFloat(estado.tasa_bcv);
+      const base = 'Precios referenciales en USD · Pago en Bs a la tasa BCV del día de la venta';
+      if (!isFinite(t) || t <= 0) return base;
+      const tTxt = t.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      return base + ' · Bs. ' + tTxt + '/USD';
+    }
+
     function _lpNombreMarcas() {
       if (_lpMarcasSel.length === 0) return '';
       if (_lpMarcasSel.length === 1) return _lpMarcasSel[0];
@@ -6787,7 +6990,8 @@ GEN-3401    5"
         + 'body{font-family:Arial,sans-serif;font-size:11px;color:#222;margin:24px}'
         + 'h1{color:#1F3864;font-size:20px;text-align:center;margin-bottom:2px}'
         + '.sub{text-align:center;color:#595959;font-style:italic;font-size:10.5px;margin-bottom:4px}'
-        + '.marcas{text-align:center;color:#1F3864;font-weight:bold;font-size:12px;margin-bottom:14px}'
+        + '.marcas{text-align:center;color:#1F3864;font-weight:bold;font-size:12px;margin-bottom:3px}'
+        + '.moneda{text-align:center;color:#7A7A7A;font-size:9px;margin-bottom:12px}'
         + 'table{width:100%;border-collapse:collapse}'
         + 'th{background:#BF8F00;color:#FFF;padding:5px 8px;text-align:left;font-size:11px}'
         + 'th.num,td.num{text-align:right}'
@@ -6797,9 +7001,10 @@ GEN-3401    5"
         + '@media print{body{margin:10mm}thead{display:table-header-group}}'
         + '</style></head><body>'
         + '<h1>ARJ — AGRO REPUESTOS Y SERVICIOS JIMÉNEZ</h1>'
-        + '<div class="sub">Lista de Precios · Repuestos para Maquinaria Agrícola · ' + hoy + ' · Precios en USD</div>'
+        + '<div class="sub">Lista de Precios · Repuestos para Maquinaria Agrícola · ' + hoy + '</div>'
         + '<div class="marcas">' + _lpNombreMarcas() + '</div>'
-        + '<table><thead><tr><th>Código</th><th>Descripción</th><th>Marca</th><th class="num">Precio (USD)</th></tr></thead><tbody>';
+        + '<div class="moneda">' + _lpLeyendaMoneda() + '</div>'
+        + '<table><thead><tr><th>Código</th><th>Descripción</th><th>Marca</th><th class="num">Ref. USD</th></tr></thead><tbody>';
       filas.forEach(p => {
         const desc = (p.desc || '').replace(/[\r\n]+/g, ' ').trim();
         html += '<tr><td>' + p.cod_alt + '</td><td>' + desc + '</td><td>' + (p.marca || '') + '</td><td class="num">$ ' + precioLista(p).toFixed(2) + '</td></tr>';
@@ -7490,15 +7695,18 @@ GEN-3401    5"
       if (total <= 0) return;
       const factorBcv = colchonFactor();
       const totalBs = total * factorBcv * estado.tasa_bcv; // mismo número que "Cobrar en Bs"
+      const totalUsd = totalEnDivisas(total);              // v13.12: el que salda en verde
       // Fracción de la factura ya cubierta por los OTROS pagos, cada uno según su precio anunciado
       let fraccion = 0;
       estado.pagos.forEach((p, j) => {
         if (j === i) return;
-        fraccion += p.moneda === 'USD' ? p.monto / total : p.monto / totalBs;
+        fraccion += p.moneda === 'USD'
+          ? (totalUsd > 0 ? p.monto / totalUsd : 0)
+          : (totalBs > 0 ? p.monto / totalBs : 0);
       });
       const faltaFrac = Math.max(0, 1 - fraccion);
       estado.pagos[i].monto = estado.pagos[i].moneda === 'USD'
-        ? Math.round(faltaFrac * total * 100) / 100
+        ? Math.round(faltaFrac * totalUsd * 100) / 100
         : Math.round(faltaFrac * totalBs * 100) / 100;
       renderPagos();
     }
@@ -7511,18 +7719,43 @@ GEN-3401    5"
       const subtotal = estado.items.reduce((a, i) => a + i.cant * i.precio, 0);
       const iva = 0; // SIEMPRE 0
       const total = subtotal + iva;
-      // Factor BCV: ajuste para que al cobrar en Bs a tasa BCV, ARJ reciba el valor real.
-      // Se agrega +5 puntos porcentuales como colchón contra fluctuaciones del día.
+      // v13.12: los precios de ARJ ya estan en $ BCV (el 25% de compra de divisas
+      // vive dentro del costo, y el precio sale de multiplicar ese costo). El
+      // factor ya NO convierte de paralelo a BCV — solo aplica el resguardo por
+      // el riesgo cambiario de cobrar en bolivares.
       const factorBcv = colchonFactor();
       const totalBcv = total * factorBcv;
       const totalBs = totalBcv * estado.tasa_bcv; // Bs = precio BCV × tasa BCV (incluye colchón)
 
+      // v13.12: el efectivo en divisas que salda esta factura.
+      const totalUsd = totalEnDivisas(total);
+
       document.getElementById('t-subtotal').textContent = fmtUSD(subtotal);
-      document.getElementById('t-total').textContent = fmtUSD(total);
+      document.getElementById('t-total').textContent = fmtUSD(totalUsd);
       document.getElementById('t-total-bcv').textContent = fmtUSD(totalBcv);
       document.getElementById('t-bs').textContent = fmtBS(totalBs);
       const badge = document.getElementById('t-factor-badge');
       if (badge) badge.textContent = '×' + factorBcv.toFixed(2);
+      const badgeUsd = document.getElementById('t-usd-badge');
+      if (badgeUsd) {
+        const ex = dtoDivisaExcedentePct();
+        badgeUsd.textContent = '−' + dtoDivisaPct().toFixed(1) + '%';
+        badgeUsd.style.background = ex > 0 ? 'var(--red)' : 'var(--blue)';
+        badgeUsd.title = ex > 0
+          ? 'Conversión ' + dtoDivisaNeutro().toFixed(1) + '% + ' + ex.toFixed(1) + ' puntos de descuento real'
+          : 'Solo conversión a la brecha del día. No regalas margen.';
+      }
+      const avisoUsd = document.getElementById('t-usd-aviso');
+      if (avisoUsd) {
+        const ex = dtoDivisaExcedentePct();
+        if (ex > 0) {
+          const regalado = Math.round(total * (ex / 100) * 100) / 100;
+          avisoUsd.style.display = '';
+          avisoUsd.textContent = 'Regalas ' + ex.toFixed(1) + ' pts sobre la brecha = ' + fmtUSD(regalado) + '. Se registra como descuento.';
+        } else {
+          avisoUsd.style.display = 'none';
+        }
+      }
 
       // Pagos en USD equivalente (paralelo)
       // USD cuenta 1:1. Bs se divide entre tasa PARALELO (valor real del bolívar).
@@ -7531,7 +7764,12 @@ GEN-3401    5"
       let fraccionPagada = 0;
       estado.pagos.forEach(p => {
         if (total <= 0) return;
-        fraccionPagada += p.moneda === 'USD' ? p.monto / total : p.monto / totalBs;
+        // v13.12: el pago en USD se mide contra el total EN DIVISAS, no contra
+        // el total en $BCV. Antes un cliente que pagaba lo que decia la pantalla
+        // quedaba corto y el sistema le pedia mas.
+        fraccionPagada += p.moneda === 'USD'
+          ? (totalUsd > 0 ? p.monto / totalUsd : 0)
+          : (totalBs > 0 ? p.monto / totalBs : 0);
       });
       const falta = total > 0 ? total * (1 - fraccionPagada) : 0;
       const row = document.getElementById('saldo-pago-row');
@@ -7684,6 +7922,7 @@ GEN-3401    5"
       estado.items = []; estado.pagos = []; estado.cliente = null; estado.tier = 'Publico';
       if (typeof _cotOrigen !== 'undefined') _cotOrigen = null; // abandonó el carrito → el presupuesto sigue activo
       estado.dto_manual = 0; estado.dto_motivo = '';
+      estado.dto_divisa = null; // v13.12: vuelve a la brecha del dia en la proxima factura
       document.getElementById('cliente-select').value = '';
       document.getElementById('info-cliente').textContent = 'Selecciona un cliente para empezar';
       const fc = document.getElementById('emitir-fiscal'); if (fc) fc.checked = false;
@@ -7861,11 +8100,11 @@ GEN-3401    5"
         return;
       }
       // Factor con tasa del día (NO la congelada de la factura)
-      const factorHoy = colchonFactor();
       c.innerHTML = facturasFiltradas.map(f => {
         const saldo = f.total - f.abonado;
-        // Bs a cobrar HOY (no congelado): saldo USD × factor del día × tasa BCV del día
-        const saldoBsHoy = saldo * factorHoy * estado.tasa_bcv;
+        // v13.12: el factor sale de LA FACTURA (congelado al emitir), no del
+        // global de hoy. La tasa BCV si es la del dia: anti-descapitalizacion.
+        const saldoBsHoy = saldo * factorBsDe(f) * estado.tasa_bcv;
         let cls = f.estado, fechaTxt = '';
         if (f.estado === 'vencida') fechaTxt = `<i class="ti ti-alert-circle"></i> Venció ${f.vence} (${f.dias} días)`;
         else if (f.estado === 'por_vencer') fechaTxt = `<i class="ti ti-clock"></i> Vence ${f.vence} (en ${f.dias} días)`;
@@ -7877,8 +8116,8 @@ GEN-3401    5"
         <span class="deuda-fecha ${f.estado === 'vencida' ? 'vencida' : ''}">${f.num} · ${fechaTxt}</span>
       </div>
       <div class="deuda-monto-block">
-        <div class="deuda-monto">${fmtUSD(saldo)}<span style="font-size:10px;color:var(--dgray);font-weight:500"> paralelo</span></div>
-        <div style="font-size:11px;color:var(--gold);font-weight:600">${fmtUSD(saldo * factorHoy)} BCV · ${fmtBS(saldoBsHoy)}</div>
+        <div class="deuda-monto">${fmtUSD(saldo)}</div>
+        <div style="font-size:11px;color:var(--gold);font-weight:600">con resguardo ${fmtUSD(saldo * factorBsDe(f))} · ${fmtBS(saldoBsHoy)}</div>
         ${abonoTxt}
       </div>
       <div style="display:flex;gap:4px" onclick="event.stopPropagation()">
@@ -7921,14 +8160,103 @@ GEN-3401    5"
     }
 
     function actualizarTasas() {
-      estado.tasa_par = parseFloat(document.getElementById('cfg-par').value) || 215.50;
-      estado.tasa_bcv = parseFloat(document.getElementById('cfg-bcv').value) || 195.20;
+      // v13.12 SE QUITARON LOS FALLBACKS `|| 215.50` y `|| 195.20`. Un campo
+      // vacio daba parseFloat('') = NaN, que es falsy, y el sistema saltaba a
+      // esas tasas de hace meses SIN AVISAR: con las reales cerca de 930 y 785,
+      // habria facturado a un cuarto de su valor. Ahora se rechaza y se conserva.
+      const _par = parseFloat(document.getElementById('cfg-par').value);
+      const _bcv = parseFloat(document.getElementById('cfg-bcv').value);
+      if (!isFinite(_par) || _par <= 0 || !isFinite(_bcv) || _bcv <= 0) {
+        notif('Las tasas deben ser números mayores que cero. Se conservan las anteriores.', 'error');
+        document.getElementById('cfg-par').value = estado.tasa_par;
+        document.getElementById('cfg-bcv').value = estado.tasa_bcv;
+        return;
+      }
+      if (_bcv > _par) {
+        notif('El BCV quedó por encima del paralelo. Revisa: normalmente es al revés. No se guardó.', 'error');
+        return;
+      }
+      estado.tasa_par = _par;
+      estado.tasa_bcv = _bcv;
+      estado.tasas_actualizadas = new Date().toISOString();
       document.getElementById('tasa-par').textContent = fmtBS(estado.tasa_par);
       document.getElementById('tasa-bcv').textContent = fmtBS(estado.tasa_bcv);
       recalcular();
-      logBitacora('precio', `Actualizó tasas: Paralelo ${fmtBS(estado.tasa_par)} · BCV ${fmtBS(estado.tasa_bcv)}`, true);
-      _sbGuardarTasas(); // v12: sync a Supabase
-      notif('Tasas actualizadas. Las facturas ya emitidas mantienen su tasa congelada.', 'success');
+      logBitacora('precio', `Confirmó tasas: Paralelo ${fmtBS(estado.tasa_par)} · BCV ${fmtBS(estado.tasa_bcv)}`, true);
+      _sbGuardarTasas();
+      revisarTasasDelDia();
+      notif('Tasas confirmadas. Las facturas ya emitidas mantienen su tasa congelada.', 'success');
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // BANNER DE TASAS DEL DIA (v13.12)
+    // El caso que hay que cubrir: si la tasa NO cambia (pasa en Venezuela,
+    // poco pero pasa), el `onchange` de los inputs no dispara, actualizarTasas()
+    // nunca corre, la fecha nunca se escribe y el banner se queda pegado para
+    // siempre. Por eso el boton "Confirmar tasas de hoy" llama a la funcion
+    // DIRECTAMENTE: confirmar es una accion del usuario, no un cambio de dato.
+    // ═══════════════════════════════════════════════════════════════
+    function tasasConfirmadasHoy() {
+      const t = estado.tasas_actualizadas;
+      if (!t) return false;
+      const d = new Date(t);
+      if (isNaN(d.getTime())) return false;
+      const h = new Date();
+      return d.getFullYear() === h.getFullYear()
+        && d.getMonth() === h.getMonth()
+        && d.getDate() === h.getDate();
+    }
+
+    function revisarTasasDelDia() {
+      const b = document.getElementById('banner-tasas');
+      if (!b) return;
+      if (tasasConfirmadasHoy()) { b.classList.remove('show'); _pintarEstadoTasas(); return; }
+      const sub = document.getElementById('bt-sub');
+      if (sub) {
+        const t = estado.tasas_actualizadas;
+        let cuando = 'Nunca se han confirmado desde que existe el registro.';
+        if (t) {
+          const d = new Date(t);
+          if (!isNaN(d.getTime())) {
+            const dias = Math.floor((Date.now() - d.getTime()) / 86400000);
+            cuando = 'Última confirmación: ' + d.toLocaleDateString('es-VE', { day: '2-digit', month: 'short' })
+              + ' a las ' + d.toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' })
+              + (dias >= 1 ? ' — hace ' + dias + (dias === 1 ? ' día' : ' días') : '');
+          }
+        }
+        sub.textContent = cuando + '  ·  Vigentes: Paralelo ' + fmtBS(estado.tasa_par) + ' · BCV ' + fmtBS(estado.tasa_bcv);
+      }
+      b.classList.add('show');
+      _pintarEstadoTasas();
+    }
+
+    // Confirma sin exigir que el valor cambie. Si las tasas siguen iguales,
+    // igual queda registrado que hoy alguien las miro y las dio por buenas.
+    function confirmarTasasHoy() { actualizarTasas(); }
+
+    // v13.12: este boton existia SIN onclick desde hace versiones. No hacia nada
+    // y no avisaba nada, lo que da la falsa impresion de que la carga automatica
+    // ya funciona. Hasta que se construya, al menos dice la verdad.
+    function avisoTasaAuto() {
+      notif('La carga automática todavía no está construida. Por ahora escribe las tasas a mano y confírmalas.', 'warning');
+    }
+
+    // Pinta en Configuración cuándo se confirmaron por última vez.
+    function _pintarEstadoTasas() {
+      const el = document.getElementById('cfg-tasas-estado');
+      if (!el) return;
+      if (tasasConfirmadasHoy()) {
+        el.style.color = 'var(--green)';
+        el.innerHTML = '<i class="ti ti-circle-check"></i> Confirmadas hoy';
+        return;
+      }
+      const t = estado.tasas_actualizadas;
+      el.style.color = 'var(--red)';
+      if (!t) { el.innerHTML = '<i class="ti ti-alert-circle"></i> Sin confirmar'; return; }
+      const d = new Date(t);
+      const dias = isNaN(d.getTime()) ? null : Math.floor((Date.now() - d.getTime()) / 86400000);
+      el.innerHTML = '<i class="ti ti-alert-circle"></i> Sin confirmar hoy'
+        + (dias != null ? ' — última vez hace ' + dias + (dias === 1 ? ' día' : ' días') : '');
     }
 
     function mostrarAyuda() {
@@ -12642,6 +12970,38 @@ function renderHistorial(){
       }
     }
 
+    // v13.12 TRAZABILIDAD DEL PAGO EN DIVISAS.
+    // En el documento tiene que quedar escrito: cuanto se cobro en efectivo,
+    // que parte fue conversion (no es descuento) y que parte se regalo de
+    // verdad. Si no se distingue, dentro de tres meses nadie sabe si un total
+    // bajo fue la brecha del dia o una concesion comercial.
+    function _bloqueDivisas(f, pagos) {
+      const enUsd = (pagos || []).filter(p => (p.metodo || '').toLowerCase().indexOf('usd') >= 0
+        || (p.metodo || '').toLowerCase().indexOf('divisa') >= 0
+        || (p.metodo || '').toLowerCase().indexOf('efectivo $') >= 0);
+      const dto = parseFloat(f.descuento_manual) || 0;
+      const motivo = f.motivo_descuento || '';
+      const huboDivisas = enUsd.length > 0 || motivo.indexOf('Pago en divisas') >= 0;
+      if (!huboDivisas && dto <= 0) return '';
+      let filas = '';
+      if (huboDivisas) {
+        const montoUsd = enUsd.reduce((a, p) => a + (parseFloat(p.monto_usd) || 0), 0);
+        filas += '<div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:4px">'
+          + '<span><i class="ti ti-coins"></i> Pagado en divisas:</span><strong>' + fmtUSD(montoUsd) + '</strong></div>';
+      }
+      if (dto > 0) {
+        filas += '<div style="display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:4px;color:var(--red)">'
+          + '<span>Descuento registrado:</span><strong>' + fmtUSD(dto) + '</strong></div>';
+      }
+      if (motivo) {
+        filas += '<div style="font-size:10.5px;color:var(--dgray);line-height:1.45;border-top:1px solid var(--border);padding-top:5px;margin-top:4px">'
+          + motivo + '</div>';
+      }
+      return '<div style="background:#FFF8E1;border:1px solid var(--gold);border-radius:8px;padding:10px 12px;margin-top:8px">'
+        + '<div style="font-size:10.5px;text-transform:uppercase;font-weight:700;color:#5D4037;margin-bottom:6px">'
+        + 'Forma de pago y descuentos</div>' + filas + '</div>';
+    }
+
     async function verDetalleFactura(num) {
       const f = TODAS_FACTURAS.find(x => x.num === num);
       if (!f) { notif('Factura no encontrada', 'error'); return; }
@@ -12731,6 +13091,7 @@ function renderHistorial(){
             <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:12px;color:var(--lgreen)"><span style="opacity:0.8">Abonado:</span><span style="font-weight:700">${fmtUSD(f.abonado || 0)}</span></div>
             <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;color:${f.saldo_pendiente > 0 ? '#FFCDD2' : '#C8E6C9'}"><span>Saldo pendiente:</span><span>${fmtUSD(f.saldo_pendiente || 0)}</span></div>
           </div>
+          ${_bloqueDivisas(f, pagos)}
           ${f.estado !== 'anulada' && f.estado !== 'pagada' ? `<button class="btn btn-primary" style="width:100%;margin-top:8px" onclick="abrirAbono('${f.num}')"><i class="ti ti-cash-banknote"></i> Registrar abono</button>` : ''}
           ${f.estado !== 'anulada' ? `<button class="btn btn-secondary" style="width:100%;margin-top:6px" onclick="reimprimirFactura('${f.num}')"><i class="ti ti-printer"></i> Reimprimir</button>` : ''}
           ${f.estado !== 'anulada' ? `<button class="btn btn-secondary" style="width:100%;margin-top:6px;color:var(--red);border-color:var(--red)" onclick="cerrarDetalleFactura();abrirAnular('${f.num}','${f.cliente}')"><i class="ti ti-ban"></i> Anular factura</button>` : ''}
@@ -12806,8 +13167,7 @@ function renderHistorial(){
       if (!f) { notif('Factura no encontrada', 'error'); return; }
       cerrarDetalleFactura();
       // Bs a tasa del DÍA (no congelada)
-      const factorHoy = colchonFactor();
-      const saldoBsHoy = f.saldo_pendiente * factorHoy * estado.tasa_bcv;
+      const saldoBsHoy = f.saldo_pendiente * factorBsDe(f) * estado.tasa_bcv; // v13.12: factor congelado de la factura
       let modal = document.getElementById('modal-abono');
       if (!modal) {
         modal = document.createElement('div');
@@ -12824,17 +13184,17 @@ function renderHistorial(){
       <div style="background:var(--sky);border-radius:6px;padding:10px 12px;margin-bottom:12px;font-size:12px">
         <div><strong>Factura:</strong> ${f.num}</div>
         <div><strong>Cliente:</strong> ${f.cliente}</div>
-        <div style="margin-top:6px"><strong>Total:</strong> ${fmtUSD(f.total)} (paralelo) · <strong>Abonado:</strong> ${fmtUSD(f.abonado || 0)}</div>
+        <div style="margin-top:6px"><strong>Total:</strong> ${fmtUSD(f.total)} · <strong>Abonado:</strong> ${fmtUSD(f.abonado || 0)}</div>
         <div style="margin-top:8px;padding:8px;background:#FFF;border:1px solid var(--border);border-radius:6px">
           <div style="display:grid;grid-template-columns:auto auto;gap:4px 12px;font-size:11.5px">
-            <span style="color:var(--dgray)">Saldo USD (paralelo):</span>
+            <span style="color:var(--dgray)">Saldo en $:</span>
             <strong style="text-align:right;color:var(--red)">${fmtUSD(f.saldo_pendiente)}</strong>
-            <span style="color:var(--dgray)">Saldo USD (BCV) ⓘ:</span>
-            <strong style="text-align:right;color:var(--gold)" title="Esta es la cifra equivalente al cambio oficial BCV — la que el cliente puede verificar">${fmtUSD(f.saldo_pendiente * factorHoy)}</strong>
+            <span style="color:var(--dgray)">Con resguardo (${((factorBsDe(f) - 1) * 100).toFixed(1)}%) ⓘ:</span>
+            <strong style="text-align:right;color:var(--gold)" title="El saldo más el resguardo cambiario que se congeló al emitir esta factura. Es la cifra que se convierte a bolívares.">${fmtUSD(f.saldo_pendiente * factorBsDe(f))}</strong>
             <span style="color:var(--dgray);border-top:1px solid var(--border);padding-top:4px">Cobrar HOY en Bs:</span>
             <strong style="text-align:right;color:var(--navy);font-size:13px;border-top:1px solid var(--border);padding-top:4px">${fmtBS(saldoBsHoy)}</strong>
           </div>
-          <div style="font-size:10px;color:var(--dgray);margin-top:6px;font-style:italic">Tasa actualizada · NO congelada</div>
+          <div style="font-size:10px;color:var(--dgray);margin-top:6px;font-style:italic">Tasa BCV del día · resguardo congelado al emitir</div>
         </div>
       </div>
       <div style="display:flex;flex-direction:column;gap:10px">
@@ -12959,8 +13319,7 @@ function renderHistorial(){
       // se considera completo (incluye colchón BCV). Topear al saldo pendiente.
       const f = TODAS_FACTURAS.find(x => x.num === num) || FACTURAS_COBRAR.find(x => x.num === num);
       if (f) {
-        const factorHoy = colchonFactor();
-        const saldoBsHoy = f.saldo_pendiente * factorHoy * estado.tasa_bcv;
+        const saldoBsHoy = f.saldo_pendiente * factorBsDe(f) * estado.tasa_bcv; // v13.12: factor congelado
         if (moneda === 'Bs') {
           // ¿El monto en Bs cubre o excede el "Cobrar HOY"? → es pago completo del saldo
           if (montoIn >= saldoBsHoy - 1) {
@@ -13351,6 +13710,29 @@ function renderHistorial(){
     </div>
   </div>
   <!-- Modal: elegir formato de lista de precios -->
+  <div class="confirm-modal" id="modal-dto-divisa">
+    <div class="confirm-box">
+      <h3><i class="ti ti-coins"></i> Descuento por pago en divisas</h3>
+      <p style="margin-bottom:10px">Tus precios están en <strong>$ BCV</strong>. Convertirlos a efectivo
+        equivale a <strong id="dd-neutro">—</strong>, y eso <u>no</u> es descuento: es la misma plata.<br>
+        <span style="font-size:11.5px;color:var(--dgray)">Todo lo que pongas por encima sale de tu margen y
+          se registra como descuento.</span></p>
+      <div style="display:flex;gap:6px;align-items:center;justify-content:center;margin:10px 0">
+        <input type="number" id="dd-pct" step="0.1" min="0" max="60" oninput="_ddPreview()"
+          style="width:100px;padding:8px;border:1px solid var(--border);border-radius:6px;font-size:16px;text-align:center;font-family:inherit">
+        <span style="font-size:16px;font-weight:600">%</span>
+        <button type="button" onclick="_ddNeutro()"
+          style="padding:7px 12px;border:1px solid var(--border);background:#FFF;border-radius:6px;cursor:pointer;font-size:12px;font-family:inherit">Usar
+          la brecha</button>
+      </div>
+      <div id="dd-preview" style="font-size:12.5px;padding:9px;border-radius:6px;background:#F2F5FA;line-height:1.6"></div>
+      <div class="actions">
+        <button class="btn btn-primary" onclick="guardarDtoDivisa()"><i class="ti ti-check"></i> Aplicar</button>
+        <button class="btn btn-secondary" onclick="cerrarDtoDivisa()">Cancelar</button>
+      </div>
+    </div>
+  </div>
+
   <div class="confirm-modal" id="modal-lista-precios">
     <div class="confirm-box lp-box">
       <h3><i class="ti ti-download"></i> Descargar lista de precios</h3>
