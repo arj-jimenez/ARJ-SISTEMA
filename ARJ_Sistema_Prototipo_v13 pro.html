@@ -3249,6 +3249,20 @@
       </div>
     </div>
 
+    <div class="modal" id="modal-recepciones">
+      <div class="modal-content" style="max-width:900px;text-align:left;max-height:90vh;overflow-y:auto">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;border-bottom:1px solid var(--gray);padding-bottom:12px">
+          <h3 style="margin:0;font-size:18px;color:var(--navy);font-weight:600"><i class="ti ti-truck-delivery"></i> Recepciones y conteos</h3>
+          <button class="btn btn-secondary btn-sm" onclick="cerrarRecepciones()"><i class="ti ti-x"></i></button>
+        </div>
+        <div style="margin-bottom:10px">
+          <input type="text" class="val-input" id="recs-buscar" oninput="renderRecepciones()" placeholder="Buscar por número, embarque o referencia…" style="width:100%">
+        </div>
+        <div id="recs-lista"></div>
+        <div id="recs-detalle" style="display:none;margin-top:14px;border-top:2px solid var(--gray);padding-top:12px"></div>
+      </div>
+    </div>
+
     <div class="modal" id="modal-traspaso">
       <div class="modal-content" style="max-width:760px;text-align:left;max-height:90vh;overflow-y:auto">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;border-bottom:1px solid var(--gray);padding-bottom:12px">
@@ -3815,6 +3829,7 @@ GEN-3401    5"
       <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px" data-restrict="gerente">
         <button class="btn btn-secondary" id="btn-despachar" onclick="abrirTraspaso()"><i class="ti ti-arrows-exchange"></i> Despachar a Directa</button>
         <button class="btn btn-secondary" id="btn-notas" onclick="abrirNotas()"><i class="ti ti-file-text"></i> Notas de entrega</button>
+        <button class="btn btn-secondary" id="btn-recepciones" onclick="abrirRecepciones()"><i class="ti ti-truck-delivery"></i> Recepciones</button>
         <button class="btn btn-primary" onclick="abrirRecepcion()"><i class="ti ti-clipboard-check"></i> Conteo / Recepción</button>
       </div>
 
@@ -7950,7 +7965,17 @@ GEN-3401    5"
         }
       }
       resumen += `<div class="modal-summary-row"><span>IVA:</span><strong style="color:var(--gold)">$ 0.00 (exento)</strong></div>`;
-      resumen += `<div class="modal-summary-row" style="background:#FFF8E1;margin:6px -8px;padding:6px 12px;border-radius:4px"><span><i class="ti ti-snowflake" style="color:var(--blue)"></i> Tasa congelada:</span><strong style="color:var(--blue)">${fmtBS(tasaCongelada.paralelo)}/USD</strong></div>`;
+      // v13.21 Se muestran las DOS tasas. Antes solo salia la paralela, que con
+      // el modelo nuevo es la equivocada: lo que se le cobra al cliente en
+      // bolivares sale de la BCV. La paralela queda como referencia comercial
+      // interna (sirve para leer la brecha del dia), pero se rotula distinto
+      // para que nunca se confundan. NINGUNA de las dos va en el PDF del cliente.
+      resumen += `<div style="background:#FFF8E1;margin:6px -8px;padding:8px 12px;border-radius:4px">
+      <div style="font-size:9.5px;color:#8D6E63;font-weight:600;letter-spacing:.4px;margin-bottom:4px"><i class="ti ti-snowflake" style="color:var(--blue)"></i> TASAS CONGELADAS EN ESTA FACTURA · USO INTERNO</div>
+      <div class="modal-summary-row" style="padding:2px 0"><span>BCV <span style="font-size:9px;color:#8D6E63">— con esta se cobra</span>:</span><strong style="color:var(--blue)">${fmtBS(tasaCongelada.bcv)}/USD</strong></div>
+      <div class="modal-summary-row" style="padding:2px 0"><span>Paralelo <span style="font-size:9px;color:#8D6E63">— referencia</span>:</span><strong style="color:#8D6E63">${fmtBS(tasaCongelada.paralelo)}/USD</strong></div>
+      ${tasaOk(tasaCongelada.bcv) && tasaOk(tasaCongelada.paralelo) ? `<div class="modal-summary-row" style="padding:2px 0;border-top:1px dashed #D7CCC8;margin-top:3px"><span>Brecha del día:</span><strong style="color:#8D6E63">${((tasaCongelada.paralelo / tasaCongelada.bcv - 1) * 100).toFixed(2)}%</strong></div>` : ''}
+    </div>`;
       if (negativos.length > 0) {
         resumen += `<div class="modal-summary-row"><span>⚠ Préstamo inter-empresarial:</span><strong style="color:var(--gold)">${negativos.length} producto(s)</strong></div>`;
       }
@@ -8911,6 +8936,92 @@ GEN-3401    5"
       return t;
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // v13.21 REGISTRO DE RECEPCION
+    // Hasta ahora la recepcion solo hacia `stock = stock + cant` y borraba el
+    // sumando. Quedaba la foto (cuanto hay) pero se perdia la pelicula (cuanto
+    // entro). De una foto no se saca la pelicula, y este dato NO es recuperable
+    // despues: si no se guarda al recibir, se perdio.
+    //
+    // Con el registro se puede calcular rotacion (llegaron 100, quedan 20 =>
+    // vendiste 80), reclamarle al proveedor con un numero citable, y hacer que
+    // "la mitad de lo que llego" siga dando bien cuando ya haya ventas.
+    //
+    // Se guarda DESPUES de mover el stock y solo con lo que de verdad se movio.
+    // El contador se sube AL FINAL: al reves, un fallo quema el correlativo.
+    async function _recGuardarRegistro(A, lista, ref) {
+      if (!_sb || !_supabaseConectado) return null;
+      const renglones = [];
+      // Entradas / ajustes que SI se aplicaron.
+      lista.forEach(r => {
+        const antes = A.tipo === 'recepcion'
+          ? (r.nuevo - (r.cant != null ? r.cant : 0))
+          : (r.prod[A.campo] != null ? r.prod[A.campo] : null);
+        renglones.push({
+          prod: r.prod,
+          cantidad: A.tipo === 'recepcion' ? (r.cant || 0) : (r.nuevo - (r.sistema || 0)),
+          antes: A.tipo === 'recepcion' ? antes : (r.sistema != null ? r.sistema : antes),
+          despues: r.nuevo,
+          clase: A.tipo === 'recepcion' ? 'entrada' : ((r.nuevo - (r.sistema || 0)) < 0 ? 'falta' : 'sobra')
+        });
+      });
+      // No contados: stock en sistema que nadie vio en el galpon. NO se tocan,
+      // pero se dejan anotados: si el mismo codigo sale no-contado tres veces
+      // seguidas, ahi hay algo.
+      (A.noContados || []).forEach(r => renglones.push({
+        prod: r.prod, cantidad: 0, antes: r.sistema, despues: r.sistema, clase: 'no_contado'
+      }));
+      if (!renglones.length) return null;
+
+      try {
+        const anio = new Date().getFullYear();
+        const { data: cont, error: ce } = await _sb.from('contadores')
+          .select('*').eq('tipo', 'recepcion').eq('anio', anio).single();
+        if (ce || !cont) { console.error('[ARJ] contador recepcion:', ce && ce.message); return null; }
+        const nuevoNum = (cont.ultimo_numero || 0) + 1;
+        const numero = (cont.prefijo || 'REC') + '-' + anio + '-' + String(nuevoNum).padStart(5, '0');
+
+        const unidades = renglones.reduce((a, r) => a + Math.abs(r.cantidad), 0);
+        const totalCosto = Math.round(renglones.reduce((a, r) => a + costoLanded(r.prod) * Math.abs(r.cantidad), 0) * 100) / 100;
+        const noCont = renglones.filter(r => r.clase === 'no_contado').length;
+
+        const { data: ins, error: ie } = await _sb.from('recepciones').insert({
+          numero, tipo: A.tipo, destino: A.destino,
+          embarque_id: A.embId || null,
+          embarque_codigo: A.emb ? A.emb.codigo : null,
+          referencia: ref || null,
+          usuario: estado.usuario || 'Sistema',
+          productos_count: renglones.length - noCont,
+          unidades_count: unidades,
+          total_costo: totalCosto,
+          no_contados_count: noCont
+        }).select().single();
+        if (ie || !ins) { console.error('[ARJ] insert recepcion:', ie && ie.message); return null; }
+
+        // Foto del momento: si manana cambia el nombre o el costo, este
+        // renglon no cambia. Igual criterio que las notas de entrega.
+        const items = renglones.map(r => {
+          const cu = Math.round(costoLanded(r.prod) * 10000) / 10000;
+          return {
+            recepcion_id: ins.id, producto_id: String(r.prod.id),
+            cod_alt: r.prod.cod_alt, descripcion: r.prod.desc || '', marca: r.prod.marca || '',
+            cantidad: r.cantidad, costo_unitario: cu,
+            total_linea: Math.round(cu * Math.abs(r.cantidad) * 100) / 100,
+            stock_antes: r.antes, stock_despues: r.despues, clase: r.clase
+          };
+        });
+        const { error: iie } = await _sb.from('recepcion_items').insert(items);
+        if (iie) { console.error('[ARJ] insert recepcion_items:', iie.message); return null; }
+
+        // Recien ahora el numero queda consumido.
+        await _sb.from('contadores').update({ ultimo_numero: nuevoNum }).eq('id', cont.id);
+        return { numero, unidades, totalCosto, renglones: items.length, noCont };
+      } catch (err) {
+        console.error('[ARJ] registro de recepcion:', err);
+        return null;
+      }
+    }
+
     async function recAplicar() {
       const A = _recAnalisis;
       if (!A) return;
@@ -8970,6 +9081,10 @@ GEN-3401    5"
         }
       }
 
+      // v13.21 El registro va DESPUES del stock y solo con lo que se aplico.
+      btn.textContent = 'Guardando registro...';
+      const _regRec = await _recGuardarRegistro(A, lista, (document.getElementById('rec-ref').value || '').trim());
+
       btn.disabled = false; btn.style.display = 'none';
       document.getElementById('rec-paso2').style.display = 'none';
       document.getElementById('rec-paso3').style.display = '';
@@ -8984,6 +9099,12 @@ GEN-3401    5"
       <div style="font-size:12.5px;color:var(--dgray);margin-top:4px">${A.nomDest}${ref ? ' · ' + ref : ''}</div>
       ${sellados ? `<div style="background:#E8F5E9;border:1px solid #A5D6A7;border-radius:8px;padding:10px;margin-top:12px;font-size:12px;color:#1B5E20">
         <strong>${sellados} producto(s) sellados</strong> con factor ${(parseFloat(A.emb.factor)||0).toFixed(4)} · ${A.emb.codigo}</div>` : ''}
+      ${_regRec ? `<div style="background:#E8F0F8;border:1px solid #A9C7E8;border-radius:8px;padding:10px;margin-top:10px;font-size:12px;color:#0D3B66">
+        <strong>Registro ${_regRec.numero}</strong> · ${_regRec.renglones} renglón(es) · ${_regRec.unidades} unidad(es)${_regRec.noCont ? ' · ' + _regRec.noCont + ' no contado(s)' : ''}<br>
+        <span style="font-size:11px">Queda guardado cuánto entró, no solo el stock resultante.</span></div>`
+        : `<div style="background:#FFF8E1;border:1px solid #FFE082;border-radius:8px;padding:10px;margin-top:10px;font-size:12px;color:#5D4037">
+        <strong>⚠ El stock sí se aplicó, pero el registro no se guardó.</strong><br>
+        <span style="font-size:11px">No va a quedar historial de esta entrada. Revísalo antes de seguir.</span></div>`}
       ${(A.conflicto || []).length ? `<div style="background:#FFF8E1;border:1px solid #FFE082;border-radius:8px;padding:10px;margin-top:10px;text-align:left;font-size:12px;color:#5D4037">
         <strong>${A.conflicto.length} NO se sellaron</strong> — ya venían de otro embarque y no se tocaron:<br>
         ${A.conflicto.map(c => '· ' + c.cod + ' → ' + c.otro).join('<br>')}</div>` : ''}
@@ -9376,6 +9497,135 @@ GEN-3401    5"
       });
       cont.innerHTML = t + '</tbody></table>'
         + `<div style="margin-top:9px;font-size:11px;color:var(--dgray);text-align:right">${lista.length} nota(s)</div>`;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // v13.21 HISTORIAL DE RECEPCIONES
+    // Aqui se lee lo que antes se perdia: cuanto entro de cada producto.
+    // El detalle calcula rotacion comparando lo que llego contra el stock
+    // de HOY (leido del catalogo vivo, no de la foto guardada).
+    // ═══════════════════════════════════════════════════════════════
+    let _RECS = [];
+
+    async function abrirRecepciones() {
+      document.getElementById('recs-buscar').value = '';
+      document.getElementById('recs-detalle').style.display = 'none';
+      document.getElementById('recs-lista').innerHTML =
+        '<div style="padding:26px;text-align:center;color:var(--dgray);font-size:12px"><i class="ti ti-loader-2" style="font-size:24px;display:block;margin-bottom:6px"></i>Cargando…</div>';
+      document.getElementById('modal-recepciones').classList.add('show');
+      if (!_sb || !_supabaseConectado) {
+        document.getElementById('recs-lista').innerHTML =
+          '<div style="padding:26px;text-align:center;color:var(--dgray);font-size:12px">Sin conexión a Supabase. El historial vive en la base de datos.</div>';
+        return;
+      }
+      try {
+        const { data, error } = await _sb.from('recepciones').select('*').order('fecha', { ascending: false }).limit(200);
+        if (error) throw error;
+        _RECS = data || [];
+        renderRecepciones();
+      } catch (err) {
+        console.error('[ARJ] cargar recepciones:', err);
+        document.getElementById('recs-lista').innerHTML =
+          '<div style="padding:22px;text-align:center;color:var(--red);font-size:12px">No se pudo cargar el historial: ' + (err.message || err) + '</div>';
+      }
+    }
+
+    function cerrarRecepciones() { document.getElementById('modal-recepciones').classList.remove('show'); }
+
+    function renderRecepciones() {
+      const cont = document.getElementById('recs-lista');
+      if (!cont) return;
+      const q = (document.getElementById('recs-buscar').value || '').trim().toLowerCase();
+      let lista = _RECS;
+      if (q) lista = lista.filter(r => (String(r.numero) + ' ' + String(r.embarque_codigo || '') + ' ' + String(r.referencia || '')).toLowerCase().includes(q));
+      if (!lista.length) {
+        cont.innerHTML = '<div style="padding:26px;text-align:center;color:var(--dgray);font-size:12px">'
+          + '<i class="ti ti-package-off" style="font-size:26px;display:block;margin-bottom:6px"></i>'
+          + (q ? 'Ninguna recepción coincide con la búsqueda.'
+               : 'Todavía no hay recepciones registradas.<br><span style="font-size:11px">Las entradas anteriores a esta versión no quedaron guardadas: el sistema solo sumaba al stock.</span>') + '</div>';
+        return;
+      }
+      let t = '<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="background:var(--gray)">'
+        + '<th style="text-align:left;padding:8px 10px">Número</th>'
+        + '<th style="text-align:left;padding:8px 10px">Fecha</th>'
+        + '<th style="text-align:left;padding:8px 10px">Tipo</th>'
+        + '<th style="text-align:left;padding:8px 10px">Embarque</th>'
+        + '<th style="text-align:right;padding:8px 8px">Rengl.</th>'
+        + '<th style="text-align:right;padding:8px 8px">Unid.</th>'
+        + '<th style="text-align:right;padding:8px 10px">Costo</th>'
+        + '<th style="padding:8px 10px"></th></tr></thead><tbody>';
+      lista.forEach(r => {
+        const f = new Date(r.fecha);
+        const fTxt = f.toLocaleDateString('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric' })
+          + ' ' + f.toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' });
+        const esRec = r.tipo === 'recepcion';
+        t += `<tr style="border-top:1px solid var(--border);${r.anulado ? 'opacity:.5' : ''}">
+        <td style="padding:7px 10px"><strong>${r.numero}</strong>${r.anulado ? ' <span style="color:var(--red);font-size:10px">ANULADA</span>' : ''}
+          ${r.referencia ? `<div style="font-size:10.5px;color:var(--dgray)">${r.referencia}</div>` : ''}</td>
+        <td style="padding:7px 10px;color:var(--dgray)">${fTxt}</td>
+        <td style="padding:7px 10px"><span style="background:${esRec ? 'var(--lgreen)' : '#FFF8E1'};color:${esRec ? 'var(--green)' : '#8D6E63'};padding:1px 7px;border-radius:8px;font-size:10px;font-weight:600">${esRec ? 'ENTRADA' : 'CONTEO'}</span>
+          ${r.no_contados_count ? `<div style="font-size:10px;color:var(--gold)">${r.no_contados_count} no contado(s)</div>` : ''}</td>
+        <td style="padding:7px 10px">${r.embarque_codigo || '\u2014'}</td>
+        <td style="padding:7px 8px;text-align:right">${r.productos_count || 0}</td>
+        <td style="padding:7px 8px;text-align:right">${(r.unidades_count || 0).toLocaleString('es-VE')}</td>
+        <td style="padding:7px 10px;text-align:right;font-weight:600">${fmtUSD(r.total_costo || 0)}</td>
+        <td style="padding:7px 10px;text-align:right"><button class="btn btn-secondary btn-sm" onclick="verRecepcion('${r.id}')"><i class="ti ti-eye"></i></button></td></tr>`;
+      });
+      cont.innerHTML = t + '</tbody></table>'
+        + `<div style="margin-top:9px;font-size:11px;color:var(--dgray);text-align:right">${lista.length} registro(s)</div>`;
+    }
+
+    async function verRecepcion(id) {
+      const r = _RECS.find(x => String(x.id) === String(id));
+      if (!r) { notif('No se encontr\u00f3 el registro', 'error'); return; }
+      const box = document.getElementById('recs-detalle');
+      box.style.display = '';
+      box.innerHTML = '<div style="padding:16px;text-align:center;color:var(--dgray);font-size:12px">Cargando rengl\u00f3nes…</div>';
+      try {
+        const { data, error } = await _sb.from('recepcion_items').select('*').eq('recepcion_id', r.id);
+        if (error) throw error;
+        if (!data || !data.length) { box.innerHTML = '<div style="padding:16px;color:var(--red);font-size:12px">El registro no tiene rengl\u00f3nes guardados.</div>'; return; }
+        const esRec = r.tipo === 'recepcion';
+        const soloGerente = estado.rol === 'gerente';
+        let t = `<div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:8px">${r.numero} · ${data.length} rengl\u00f3n(es)</div>`
+          + '<table style="width:100%;border-collapse:collapse;font-size:11.5px"><thead><tr style="background:var(--gray)">'
+          + '<th style="text-align:left;padding:6px 8px">C\u00f3digo</th>'
+          + '<th style="text-align:left;padding:6px 8px">Descripci\u00f3n</th>'
+          + `<th style="text-align:right;padding:6px 8px">${esRec ? 'Lleg\u00f3' : 'Dif.'}</th>`
+          + '<th style="text-align:right;padding:6px 8px">Antes</th>'
+          + '<th style="text-align:right;padding:6px 8px">Desp.</th>'
+          + (esRec ? '<th style="text-align:right;padding:6px 8px">Hoy</th><th style="text-align:right;padding:6px 8px">Vendido</th><th style="text-align:right;padding:6px 8px">Rotaci\u00f3n</th>' : '')
+          + (soloGerente ? '<th style="text-align:right;padding:6px 8px">Costo</th>' : '')
+          + '</tr></thead><tbody>';
+        data.forEach(it => {
+          // Rotacion: se compara contra el stock de HOY del catalogo vivo, no
+          // contra la foto. La foto dice como quedo ese dia; lo que interesa es
+          // cuanto de aquello sigue en el galpon.
+          const p = (typeof PRODUCTOS !== 'undefined') ? PRODUCTOS.find(x => x.cod_alt === it.cod_alt) : null;
+          const hoy = p ? ((p.stock_dist || 0) + (p.stock_vd || 0)) : null;
+          const lleg = it.cantidad || 0;
+          const vend = (hoy != null && lleg > 0) ? Math.max(0, (it.stock_despues || 0) - hoy) : null;
+          const rot = (vend != null && lleg > 0) ? (vend / lleg * 100) : null;
+          const colorRot = rot == null ? 'var(--dgray)' : (rot >= 60 ? 'var(--green)' : rot >= 25 ? 'var(--gold)' : 'var(--red)');
+          const clsTxt = { entrada: '', falta: ' <span style="color:var(--red);font-size:9px">FALTA</span>', sobra: ' <span style="color:var(--blue);font-size:9px">SOBRA</span>', no_contado: ' <span style="color:var(--gold);font-size:9px">NO CONTADO</span>' }[it.clase] || '';
+          t += `<tr style="border-top:1px solid var(--border)">
+          <td style="padding:5px 8px"><strong>${it.cod_alt || '\u2014'}</strong>${clsTxt}</td>
+          <td style="padding:5px 8px">${(it.descripcion || '').slice(0, 40)}<div style="font-size:9.5px;color:var(--dgray)">${it.marca || ''}</div></td>
+          <td style="padding:5px 8px;text-align:right;font-weight:600">${lleg > 0 ? '+' : ''}${lleg}</td>
+          <td style="padding:5px 8px;text-align:right;color:var(--dgray)">${it.stock_antes != null ? it.stock_antes : '\u2014'}</td>
+          <td style="padding:5px 8px;text-align:right;color:var(--dgray)">${it.stock_despues != null ? it.stock_despues : '\u2014'}</td>
+          ${esRec ? `<td style="padding:5px 8px;text-align:right">${hoy != null ? hoy : '\u2014'}</td>
+          <td style="padding:5px 8px;text-align:right">${vend != null ? vend : '\u2014'}</td>
+          <td style="padding:5px 8px;text-align:right;font-weight:600;color:${colorRot}">${rot != null ? rot.toFixed(0) + '%' : '\u2014'}</td>` : ''}
+          ${soloGerente ? `<td style="padding:5px 8px;text-align:right">${fmtUSD(it.total_linea || 0)}</td>` : ''}</tr>`;
+        });
+        box.innerHTML = t + '</tbody></table>'
+          + (esRec ? '<div style="margin-top:8px;font-size:10.5px;color:var(--dgray)">La rotaci\u00f3n compara lo que lleg\u00f3 contra el stock de hoy. Verde ≥ 60% · \u00e1mbar ≥ 25% · rojo por debajo. Un producto rojo despu\u00e9s de meses es plata dormida.</div>' : '')
+          + '<div style="margin-top:8px;text-align:right"><button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'recs-detalle\').style.display=\'none\'">Cerrar detalle</button></div>';
+      } catch (err) {
+        console.error('[ARJ] detalle recepcion:', err);
+        box.innerHTML = '<div style="padding:16px;color:var(--red);font-size:12px">No se pudo cargar el detalle: ' + (err.message || err) + '</div>';
+      }
     }
 
     // Se recargan los renglones desde la base en vez de confiar en memoria:
