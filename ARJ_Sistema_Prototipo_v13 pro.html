@@ -3164,10 +3164,10 @@
       <div class="header-right">
         <div class="tasa-info" onclick="navTo('config')">
           <i class="ti ti-currency-dollar"></i>
-          Paralelo: <strong id="tasa-par">Bs. 215,50</strong>
+          Paralelo: <strong id="tasa-par">—</strong>
         </div>
         <div class="tasa-info" onclick="navTo('config')">
-          BCV: <strong id="tasa-bcv">Bs. 195,20</strong>
+          BCV: <strong id="tasa-bcv">—</strong>
         </div>
         <button class="bell-btn" onclick="toggleModoOscuro()" title="Modo oscuro" id="btn-dark"><i
             class="ti ti-moon"></i></button>
@@ -4677,10 +4677,10 @@ GEN-3401    5"
       <div class="config-grid">
         <div class="config-card">
           <h3><i class="ti ti-currency-dollar" style="color:var(--blue)"></i> Tasas de cambio</h3>
-          <div class="config-row"><label>Dólar paralelo</label><input class="val-input" id="cfg-par" value="215.50"
-              type="number" step="0.01" onchange="actualizarTasas()"></div>
-          <div class="config-row"><label>Dólar BCV</label><input class="val-input" id="cfg-bcv" value="195.20"
-              type="number" step="0.01" onchange="actualizarTasas()"></div>
+          <div class="config-row"><label>Dólar paralelo</label><input class="val-input" id="cfg-par" value=""
+              type="number" step="0.01" placeholder="Sin cargar" onchange="actualizarTasas()"></div>
+          <div class="config-row"><label>Dólar BCV</label><input class="val-input" id="cfg-bcv" value=""
+              type="number" step="0.01" placeholder="Sin cargar" onchange="actualizarTasas()"></div>
           <div class="config-row"><label>Euro</label><input class="val-input" value="232.40" type="number" step="0.01">
           </div>
           <div class="config-row" style="border:none;padding-top:14px;flex-direction:column;align-items:stretch;gap:8px">
@@ -6411,8 +6411,12 @@ GEN-3401    5"
       tier: 'Publico',
       items: [],
       pagos: [],
-      tasa_par: 215.50,
-      tasa_bcv: 195.20,
+      // v13.20 Nacen en null, no en un numero viejo. Un valor inicial que
+      // parece valido es peor que uno vacio: nadie lo cuestiona. Si Supabase
+      // no carga, estas quedan null y el sistema lo dice en vez de facturar
+      // a la tasa de hace meses.
+      tasa_par: null,
+      tasa_bcv: null,
       tasas_actualizadas: null, // v13.12: cuando se confirmaron por ultima vez
       dto_divisa: null,         // v13.12: % de dto por pago en divisas (null = usa la brecha)
       factor_default: 1.471,
@@ -6684,6 +6688,23 @@ GEN-3401    5"
     // SI se bloquea al emitir.
     const sinFob = it => !isFinite(parseFloat(it && it.fob)) || parseFloat(it.fob) <= 0;
 
+    // v13.20 Sin tasas cargadas no se emite nada. No se bloquea el trabajo:
+    // se manda a Configuracion a escribirlas a mano. El sistema pide el dato
+    // que le falta en vez de inventarlo o de cerrar la puerta.
+    function tasasListas(accion) {
+      if (tasaOk(estado.tasa_par) && tasaOk(estado.tasa_bcv)) return true;
+      const faltan = [];
+      if (!tasaOk(estado.tasa_par)) faltan.push('paralelo');
+      if (!tasaOk(estado.tasa_bcv)) faltan.push('BCV');
+      alert('No se puede ' + (accion || 'continuar') + ': falta la tasa ' + faltan.join(' y la ') + '.\n\n'
+        + 'No se pudieron cargar de la base de datos. Ve a Configuraci\u00f3n \u2192 Tasas de cambio '
+        + 'y escribe las del d\u00eda a mano.\n\n'
+        + 'Todo lo que cobres en bol\u00edvares depende de esas tasas.');
+      notif('Falta cargar la tasa ' + faltan.join(' y la ') + ' en Configuraci\u00f3n', 'error');
+      navTo('config');
+      return false;
+    }
+
     // El resguardo sobre las ventas en bolivares. Se toca AQUI, en un solo lugar.
     // 1.00 = sin recargo. El precio en Bs = precio de lista x tasa BCV.
     const RESGUARDO_BS = 1.00;
@@ -6802,7 +6823,16 @@ GEN-3401    5"
       return colchonFactor();
     }
     function fmtUSD(n) { return '$ ' + (Math.round(n * 100) / 100).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
-    function fmtBS(n) { return 'Bs. ' + (Math.round(n * 100) / 100).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+    // v13.20 Una tasa sin cargar mostraba "Bs. 0,00", que parece un dato real.
+    // Ahora muestra una raya: se ve que FALTA, no que valga cero.
+    function fmtBS(n) {
+      if (n === null || n === undefined || !isFinite(Number(n))) return '\u2014';
+      return 'Bs. ' + (Math.round(n * 100) / 100).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    // Declarada como function (no const) a proposito: se usa en el arranque,
+    // dentro de aplicarConfig(). Una const tiene TDZ y podria reventar si el
+    // orden de ejecucion cambia; una function declaration esta siempre lista.
+    function tasaOk(t) { return isFinite(parseFloat(t)) && parseFloat(t) > 0; }
     function redondeoBonito(p) {
       return Math.ceil(p * 2) / 2;  // hacia arriba al $0.50 más cercano
     }
@@ -7184,8 +7214,8 @@ GEN-3401    5"
       // Aplicar tasas a los inputs y displays
       const _cfgPar = document.getElementById('cfg-par');
       const _cfgBcv = document.getElementById('cfg-bcv');
-      if (_cfgPar) _cfgPar.value = estado.tasa_par.toFixed(2);
-      if (_cfgBcv) _cfgBcv.value = estado.tasa_bcv.toFixed(2);
+      if (_cfgPar) _cfgPar.value = tasaOk(estado.tasa_par) ? estado.tasa_par.toFixed(2) : '';
+      if (_cfgBcv) _cfgBcv.value = tasaOk(estado.tasa_bcv) ? estado.tasa_bcv.toFixed(2) : '';
       const _tpEl = document.getElementById('tasa-par');
       const _tbEl = document.getElementById('tasa-bcv');
       if (_tpEl) _tpEl.textContent = fmtBS(estado.tasa_par);
@@ -7885,6 +7915,7 @@ GEN-3401    5"
       // v13.17 BLOQUEO: producto sin FOB no se factura. Decision de JJ: el FOB
       // en 0 significa que se cargo mal o que no habia costo al hacer el pedido.
       // Se corrige a mano en Inventario, no se adivina aqui.
+      if (!tasasListas('emitir la factura')) return;
       const sinCosto = estado.items.filter(sinFob);
       if (sinCosto.length > 0) {
         const lista = sinCosto.map(it => '\u2022 ' + it.cod_alt + ' \u2014 ' + (it.desc || 'sin descripcion')).join('\n');
@@ -10650,6 +10681,7 @@ GEN-3401    5"
       // v13.18 El presupuesto SI se le entrega al cliente: es un compromiso
       // comercial en papel. Un presupuesto en $0,00 es peor que una factura
       // mala, porque el precio queda congelado al convertirlo a venta.
+      if (!tasasListas('guardar el presupuesto')) return;
       if (!preValidarFob()) return;
 
       notif('Guardando presupuesto...', 'warning');
@@ -10725,6 +10757,7 @@ GEN-3401    5"
       if (!preEstado.cliente) { notif('Selecciona un cliente', 'error'); return; }
       if (preEstado.items.length === 0) { notif('Agrega al menos un producto', 'error'); return; }
       // v13.18 Este camino tambien GUARDA el presupuesto antes de convertir.
+      if (!tasasListas('convertir a venta')) return;
       if (!preValidarFob()) return;
 
       // FLUJO UNIFICADO: guardar el presupuesto PRIMERO, luego convertir por el
