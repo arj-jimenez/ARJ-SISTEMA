@@ -3760,6 +3760,16 @@ GEN-3401    5"
                 id="t-total">$ 0,00</span></div>
             <div id="t-usd-aviso" data-role="gerente"
               style="display:none;font-size:10px;color:#FFD9D9;background:rgba(200,40,40,.35);padding:4px 8px;border-radius:4px;margin:2px 0 4px;line-height:1.4"></div>
+            <div data-role="gerente" style="display:flex;align-items:center;gap:6px;margin:3px 0 5px;font-size:10.5px">
+              <span style="opacity:.85">Cobrar en efectivo:</span>
+              <input type="number" id="t-cobrar-verde" step="1" placeholder="—" oninput="aplicarCobrarVerde(this.value)"
+                style="width:74px;padding:2px 6px;border-radius:4px;border:1px solid rgba(255,255,255,.35);background:rgba(255,255,255,.12);color:#FFF;font-size:11px;font-weight:700;text-align:right">
+              <button onclick="redondearVerde()" title="Redondear al d\u00f3lar m\u00e1s cercano"
+                style="border:none;background:rgba(255,255,255,.18);color:#FFF;border-radius:4px;padding:2px 7px;font-size:10px;cursor:pointer">Redondear</button>
+              <button onclick="limpiarCobrarVerde()" title="Quitar el ajuste"
+                style="border:none;background:transparent;color:#FFD9D9;border-radius:4px;padding:2px 5px;font-size:11px;cursor:pointer">×</button>
+            </div>
+            <div id="t-verde-aviso" style="display:none;font-size:10px;padding:4px 8px;border-radius:4px;margin:0 0 5px;line-height:1.4"></div>
             <div class="total-row big" style="background:#FDF6E3;margin:4px -14px;padding:8px 14px;border-radius:4px">
               <span style="color:#5D4037">Si paga en Bs <span id="t-factor-badge" data-role="gerente"
                   style="font-size:9px;background:var(--gold);color:#FFF;padding:1px 6px;border-radius:8px;font-weight:600">×1.30</span></span><span
@@ -5888,6 +5898,10 @@ GEN-3401    5"
       // conversion a la brecha no regala nada. Se calcula sobre la parte de la
       // factura efectivamente pagada en divisas, no sobre el total.
       let _dtoDivPct = 0, _dtoDivMonto = 0, _pagoEnDivisas = false;
+      // v13.22 Ajuste por cobro redondo en efectivo. Negativo = se cobro de
+      // menos (descuento real). Positivo = se cobro de mas.
+      const _ajV = ajusteVerde(totalEnDivisas(subtotal));
+      const _ajVerdeDif = _ajV ? _ajV.dif : 0;
       estado.pagos.forEach(p => { if (p.moneda === 'USD' && (parseFloat(p.monto) || 0) > 0) _pagoEnDivisas = true; });
       const _exDiv = dtoDivisaExcedentePct();
       if (_exDiv > 0 && _totalUsd > 0) {
@@ -5947,8 +5961,8 @@ GEN-3401    5"
           // v13.12: el descuento por divisas POR ENCIMA de la brecha se suma al
           // descuento manual y se deja escrito en el motivo. Asi queda en la
           // factura, en el historial y en el export fiscal, no solo en bitacora.
-          descuento_manual: Math.round((descManual + _dtoDivMonto) * 100) / 100,
-          motivo_descuento: [motivoDesc, _dtoDivMonto > 0
+          descuento_manual: Math.round((descManual + _dtoDivMonto + Math.max(0, -_ajVerdeDif)) * 100) / 100,
+          motivo_descuento: [motivoDesc, _ajVerdeDif !== 0 ? ('Cobro redondo en efectivo: ' + fmtUSD(_ajV.objetivo) + ' (' + (_ajVerdeDif > 0 ? '+' : '') + fmtUSD(_ajVerdeDif) + ')') : '', _dtoDivMonto > 0
             ? 'Pago en divisas: ' + _dtoDivPct.toFixed(1) + ' pts sobre la brecha ('
               + fmtUSD(_dtoDivMonto) + ')' : ''].filter(Boolean).join(' · '),
           pidio_fiscal: pidioFiscal,
@@ -6751,6 +6765,34 @@ GEN-3401    5"
       return (isFinite(d) && d >= 0) ? d : dtoDivisaNeutro();
     }
 
+    // v13.22 Conversion entre las dos monedas del sistema.
+    // $BCV es la moneda de los PRECIOS (modelo cerrado). $verde es efectivo
+    // fisico. Se convierten con el mismo % que salda una factura, para que
+    // escribir "20 verde" y que el cliente pague 20 billetes sea exacto.
+    function bcvAVerde(p) {
+      return Math.round((parseFloat(p) || 0) * (1 - dtoDivisaPct() / 100) * 100) / 100;
+    }
+    function verdeABcv(v) {
+      const f = 1 - dtoDivisaPct() / 100;
+      return f > 0 ? Math.round((parseFloat(v) || 0) / f * 100) / 100 : 0;
+    }
+
+    // El toggle NO cambia el precio, solo la moneda en que se escribe.
+    // El precio guardado sigue siendo $BCV: el catalogo nunca se toca.
+    function toggleModoVerde(i) {
+      if (estado.rol !== 'gerente') { notif('Solo el gerente puede modificar precios', 'error'); return; }
+      estado.items[i]._modoVerde = !estado.items[i]._modoVerde;
+      renderItems();
+    }
+
+    function cambiarPrecioVerde(i, v) {
+      if (estado.rol !== 'gerente') { notif('Solo el gerente puede modificar precios', 'error'); renderItems(); return; }
+      const ant = estado.items[i].precio;
+      estado.items[i].precio = verdeABcv(v);
+      logBitacora('precio', `Precio de '${estado.items[i].desc}' fijado en ${fmtUSD(parseFloat(v) || 0)} efectivo (${fmtUSD(ant)} \u2192 ${fmtUSD(estado.items[i].precio)} BCV)`, true);
+      renderItems(); recalcular();
+    }
+
     // Cuanto efectivo en divisas salda una factura de `totalBcv`.
     function totalEnDivisas(totalBcv) {
       return Math.round(totalBcv * (1 - dtoDivisaPct() / 100) * 100) / 100;
@@ -7361,6 +7403,7 @@ GEN-3401    5"
       document.getElementById('login-error').classList.remove('show');
       // Limpiar estado
       estado.items = []; estado.pagos = []; estado.cliente = null; estado.tier = 'Publico';
+      estado.cobrar_verde = null;
       estado.rol = null; estado.usuario = null;
       document.body.classList.remove('role-gerente', 'role-vendedor');
       // v13: Cerrar sesión real en Supabase Auth
@@ -7745,7 +7788,11 @@ GEN-3401    5"
       <td>${it.desc}<div style="font-size:11px;color:var(--dgray)">${it.marca}</div></td>
       <td class="num ${sinStock ? 'stock-neg' : stockCls}">${stock}${sinStock ? ' ⚠' : ''}</td>
       <td class="num"><input type="number" class="qty-cell" value="${it.cant}" min="1" onchange="cambiarCant(${i},this.value)"></td>
-      <td class="num"><input type="number" class="price-edit-cell" value="${it.precio.toFixed(2)}" step="0.01" ${priceDisabled} onchange="cambiarPrecio(${i},this.value)"></td>
+      <td class="num">${it._modoVerde
+        ? `<input type="number" class="price-edit-cell" value="${bcvAVerde(it.precio).toFixed(2)}" step="0.01" ${priceDisabled} onchange="cambiarPrecioVerde(${i},this.value)" style="background:#E8F5E9;border-color:var(--green)">`
+        : `<input type="number" class="price-edit-cell" value="${it.precio.toFixed(2)}" step="0.01" ${priceDisabled} onchange="cambiarPrecio(${i},this.value)">`}
+        ${estado.rol === 'gerente' ? `<button onclick="toggleModoVerde(${i})" title="${it._modoVerde ? 'Volver a $BCV' : 'Escribir el precio en $ efectivo (verde)'}" style="border:none;background:${it._modoVerde ? 'var(--green)' : 'var(--gray)'};color:${it._modoVerde ? '#FFF' : 'var(--dgray)'};border-radius:4px;padding:1px 5px;font-size:10px;cursor:pointer;margin-left:3px;font-weight:700">\u21c4</button>` : ''}
+        ${it._modoVerde ? `<div style="font-size:9px;color:var(--green);font-weight:600">verde · ${fmtUSD(it.precio)} BCV</div>` : ''}</td>
       <td class="num col-restricted" style="color:${!isFinite(margenNum) ? 'var(--dgray)' : margenNum < 25 ? 'var(--red)' : margenNum < 35 ? 'var(--gold)' : 'var(--green)'};font-weight:600">${margen}${isFinite(margenNum) ? '%' : ''}</td>
       <td class="num"><strong>${fmtUSD(it.cant * it.precio)}</strong></td>
       <td><button class="del-btn" onclick="quitarItem(${i})" title="Quitar"><i class="ti ti-x"></i></button></td>
@@ -7846,6 +7893,42 @@ GEN-3401    5"
     function quitarPago(i) { estado.pagos.splice(i, 1); renderPagos(); }
 
     // ═══════════════════════════════════════════════════════════════
+    // v13.22 COBRAR EN EFECTIVO REDONDO
+    // El cliente paga con billetes y los billetes no tienen centavos. Este
+    // ajuste NO toca ningun precio: guarda aparte cuanto se va a cobrar en
+    // verde y la diferencia se registra como descuento (o recargo).
+    // Asi convive con el boton ⇄ del renglon: ese cambia precios, este no.
+    // ═══════════════════════════════════════════════════════════════
+    function aplicarCobrarVerde(v) {
+      if (estado.rol !== 'gerente') { notif('Solo el gerente puede ajustar el cobro', 'error'); return; }
+      const n = parseFloat(v);
+      estado.cobrar_verde = (isFinite(n) && n > 0) ? Math.round(n * 100) / 100 : null;
+      recalcular();
+    }
+    function limpiarCobrarVerde() {
+      estado.cobrar_verde = null;
+      const el = document.getElementById('t-cobrar-verde'); if (el) el.value = '';
+      recalcular();
+    }
+    function redondearVerde() {
+      if (estado.rol !== 'gerente') { notif('Solo el gerente puede ajustar el cobro', 'error'); return; }
+      const subtotal = estado.items.reduce((a, i) => a + i.cant * i.precio, 0);
+      if (subtotal <= 0) { notif('Agrega productos primero', 'error'); return; }
+      const objetivo = Math.round(totalEnDivisas(subtotal));
+      estado.cobrar_verde = objetivo > 0 ? objetivo : null;
+      const el = document.getElementById('t-cobrar-verde'); if (el) el.value = objetivo > 0 ? objetivo : '';
+      recalcular();
+    }
+
+    // Devuelve el ajuste vigente o null. Un solo sitio de verdad.
+    function ajusteVerde(totalUsdBase) {
+      const cv = parseFloat(estado.cobrar_verde);
+      if (!isFinite(cv) || cv <= 0 || totalUsdBase <= 0) return null;
+      const dif = Math.round((cv - totalUsdBase) * 100) / 100;
+      return { objetivo: cv, base: totalUsdBase, dif, arriba: dif > 0.004 };
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     // RECALCULAR (IVA SIEMPRE = 0, pagos descuentan del total)
     // ═══════════════════════════════════════════════════════════════
     function recalcular() {
@@ -7861,7 +7944,25 @@ GEN-3401    5"
       const totalBs = totalBcv * estado.tasa_bcv; // Bs = precio BCV × tasa BCV (incluye colchón)
 
       // v13.12: el efectivo en divisas que salda esta factura.
-      const totalUsd = totalEnDivisas(total);
+      const totalUsdBase = totalEnDivisas(total);
+      // v13.22: si el gerente fijo un monto redondo en efectivo, ese manda.
+      const _aj = ajusteVerde(totalUsdBase);
+      const totalUsd = _aj ? _aj.objetivo : totalUsdBase;
+
+      const _avVerde = document.getElementById('t-verde-aviso');
+      if (_avVerde) {
+        if (_aj && Math.abs(_aj.dif) >= 0.005) {
+          const arriba = _aj.arriba;
+          _avVerde.style.display = '';
+          _avVerde.style.background = arriba ? 'rgba(220,60,40,.40)' : 'rgba(255,255,255,.15)';
+          _avVerde.style.color = arriba ? '#FFD9D9' : '#FFF';
+          _avVerde.innerHTML = arriba
+            ? `<strong>\u26a0 Est\u00e1s cobrando ${fmtUSD(_aj.dif)} de M\u00c1S.</strong> El total en efectivo es ${fmtUSD(_aj.base)} y fijaste ${fmtUSD(_aj.objetivo)}. Aseg\u00farate de que el cliente lo sepa.`
+            : `Ajuste de ${fmtUSD(Math.abs(_aj.dif))} para que pague ${fmtUSD(_aj.objetivo)} en billetes. Sale de tu utilidad.`;
+        } else {
+          _avVerde.style.display = 'none';
+        }
+      }
 
       document.getElementById('t-subtotal').textContent = fmtUSD(subtotal);
       document.getElementById('t-total').textContent = fmtUSD(totalUsd);
@@ -8074,8 +8175,9 @@ GEN-3401    5"
 
     function limpiarFactura() {
       estado.items = []; estado.pagos = []; estado.cliente = null; estado.tier = 'Publico';
+      estado.cobrar_verde = null;
       if (typeof _cotOrigen !== 'undefined') _cotOrigen = null; // abandonó el carrito → el presupuesto sigue activo
-      estado.dto_manual = 0; estado.dto_motivo = '';
+      estado.dto_manual = 0; estado.dto_motivo = ''; estado.cobrar_verde = null;
       estado.dto_divisa = null; // v13.12: vuelve a la brecha del dia en la proxima factura
       document.getElementById('cliente-select').value = '';
       document.getElementById('info-cliente').textContent = 'Selecciona un cliente para empezar';
