@@ -5877,7 +5877,11 @@ GEN-3401    5"
       // cada pago se mide contra el precio anunciado EN SU MONEDA.
       const _factorBs = colchonFactor();
       const _totalBs = subtotal * _factorBs * estado.tasa_bcv;
-      const _totalUsd = totalEnDivisas(subtotal);
+      // v13.23 El ajuste por cobro redondo tiene que mandar tambien aqui.
+      // Si el panel dice \$20 y la validacion mide contra \$20,83, el gerente
+      // paga lo que ve y el sistema le dice que falta. Un solo numero.
+      const _ajUsd = ajusteVerde(totalEnDivisas(subtotal));
+      const _totalUsd = _ajUsd ? _ajUsd.objetivo : totalEnDivisas(subtotal);
       let _fraccion = 0;
       estado.pagos.forEach(p => {
         const m = parseFloat(p.monto) || 0;
@@ -6789,6 +6793,11 @@ GEN-3401    5"
       if (estado.rol !== 'gerente') { notif('Solo el gerente puede modificar precios', 'error'); renderItems(); return; }
       const ant = estado.items[i].precio;
       estado.items[i].precio = verdeABcv(v);
+      // v13.23 Se marca como fijo. Sin esto, cambiar de cliente o de tier
+      // dispara actualizarPreciosPorTier() y el precio vuelve al de lista:
+      // el renglon seguiria en modo verde pero mostrando otro numero.
+      estado.items[i].precio_fijo = true;
+      estado.items[i].precio_base = estado.items[i].precio;
       logBitacora('precio', `Precio de '${estado.items[i].desc}' fijado en ${fmtUSD(parseFloat(v) || 0)} efectivo (${fmtUSD(ant)} \u2192 ${fmtUSD(estado.items[i].precio)} BCV)`, true);
       renderItems(); recalcular();
     }
@@ -7875,7 +7884,10 @@ GEN-3401    5"
       if (total <= 0) return;
       const factorBcv = colchonFactor();
       const totalBs = total * factorBcv * estado.tasa_bcv; // mismo número que "Cobrar en Bs"
-      const totalUsd = totalEnDivisas(total);              // v13.12: el que salda en verde
+      // v13.23 Mismo criterio que la validacion: si hay cobro redondo fijado,
+      // "Completar" tiene que llenar ESE numero, no el teorico.
+      const _ajC = ajusteVerde(totalEnDivisas(total));
+      const totalUsd = _ajC ? _ajC.objetivo : totalEnDivisas(total); // v13.12: el que salda en verde
       // Fracción de la factura ya cubierta por los OTROS pagos, cada uno según su precio anunciado
       let fraccion = 0;
       estado.pagos.forEach((p, j) => {
@@ -8042,6 +8054,11 @@ GEN-3401    5"
       const total = estado.items.reduce((a, i) => a + i.cant * i.precio, 0);
       const tipoPago = document.getElementById('tipo-pago-factura')?.value || 'contado';
       const diasCredito = tipoPago === 'credito' ? (parseInt(document.getElementById('dias-credito')?.value) || 30) : null;
+      // v13.24 Antes esto convertia los bolivares dividiendo entre la PARALELA
+      // y comparaba el resultado contra un total en $BCV. Con el modelo nuevo
+      // (se cobra en Bs a la tasa BCV) daba "Falta pagar" sobre facturas ya
+      // saldadas. Ahora usa el MISMO modelo de fracciones que la validacion
+      // real del guardado: cada pago se mide contra su propio precio anunciado.
       const tp = estado.pagos.reduce((a, p) => a + (p.moneda === 'USD' ? p.monto : p.monto / estado.tasa_par), 0);
       const tasaCongelada = { paralelo: estado.tasa_par, bcv: estado.tasa_bcv, fecha: new Date().toLocaleString('es-VE') };
       const pidioFiscal = document.getElementById('emitir-fiscal')?.checked || false;
@@ -8051,18 +8068,37 @@ GEN-3401    5"
       });
       const factorBcv = colchonFactor();
       const totalBcv = total * factorBcv;
+      // v13.23 El modal es lo ultimo que ve el gerente antes de emitir: tiene
+      // que mostrar el MISMO numero que el panel de totales.
+      const _ajM = ajusteVerde(totalEnDivisas(total));
       let resumen = `
     <div class="modal-summary-row"><span>Empresa:</span><strong><span style="background:${estado.empresa === 'directa' ? 'var(--lblue)' : 'var(--lgreen)'};color:${estado.empresa === 'directa' ? 'var(--blue)' : 'var(--green)'};padding:1px 7px;border-radius:8px;font-size:10px;font-weight:600">${nombreEmpresa(estado.empresa).toUpperCase()}</span></strong></div>
     <div class="modal-summary-row"><span>Cliente:</span><strong>${estado.cliente.nombre}</strong></div>
     <div class="modal-summary-row"><span>Ítems:</span><strong>${estado.items.length} productos</strong></div>
-    <div class="modal-summary-row"><span>Total USD (si paga dólares):</span><strong>${fmtUSD(total)}</strong></div>
+    <div class="modal-summary-row"><span>Total USD (si paga dólares):</span><strong>${fmtUSD(_ajM ? _ajM.objetivo : totalEnDivisas(total))}</strong></div>
+    ${_ajM && Math.abs(_ajM.dif) >= 0.005 ? `<div class="modal-summary-row" style="background:${_ajM.arriba ? '#FDECEA' : '#E8F5E9'};margin:4px -8px;padding:6px 12px;border-radius:4px;font-size:11.5px">
+      <span style="color:${_ajM.arriba ? '#8B1A10' : '#1B5E20'}">${_ajM.arriba ? '\u26a0 Cobro redondo — DE M\u00c1S' : 'Cobro redondo en efectivo'}:</span>
+      <strong style="color:${_ajM.arriba ? '#8B1A10' : '#1B5E20'}">${fmtUSD(_ajM.base)} \u2192 ${fmtUSD(_ajM.objetivo)} (${_ajM.dif > 0 ? '+' : ''}${fmtUSD(_ajM.dif)})</strong></div>` : ''}
     <div class="modal-summary-row" style="background:#FDF6E3;margin:4px -8px;padding:6px 12px;border-radius:4px"><span style="color:#5D4037">Total USD (si paga Bs)${estado.rol === 'gerente' ? ' <span style="font-size:9px;background:var(--gold);color:#FFF;padding:1px 5px;border-radius:6px">×' + factorBcv.toFixed(2) + '</span>' : ''}:</span><strong style="color:#5D4037">${fmtUSD(totalBcv)}</strong></div>
     <div class="modal-summary-row"><span>Cobrar en Bs:</span><strong style="color:var(--navy)">${fmtBS(totalBcv * estado.tasa_bcv)}</strong></div>
     <div class="modal-summary-row"><span>Tipo de pago:</span><strong>${tipoPago === 'contado' ? 'CONTADO' : 'CRÉDITO ' + diasCredito + ' días'}</strong></div>`;
       if (tipoPago === 'contado') {
-        resumen += `<div class="modal-summary-row"><span>Pagado:</span><strong>${fmtUSD(tp)}</strong></div>`;
-        if (tp < total - 0.01) {
-          resumen += `<div class="modal-summary-row"><span>⚠ Falta pagar:</span><strong style="color:var(--red)">${fmtUSD(total - tp)}</strong></div>`;
+        // Fraccion de la factura cubierta, cada pago contra su propia moneda.
+        const _totUsdPago = _ajM ? _ajM.objetivo : totalEnDivisas(total);
+        const _totBsPago = totalBcv * estado.tasa_bcv;
+        let _frac = 0;
+        estado.pagos.forEach(p => {
+          const m = parseFloat(p.monto) || 0;
+          _frac += p.moneda === 'USD'
+            ? (_totUsdPago > 0 ? m / _totUsdPago : 0)
+            : (_totBsPago > 0 ? m / _totBsPago : 0);
+        });
+        const _faltaFrac = Math.max(0, 1 - _frac);
+        resumen += `<div class="modal-summary-row"><span>Pagado:</span><strong>${(_frac * 100).toFixed(1)}% de la factura</strong></div>`;
+        if (_faltaFrac > 0.0005) {
+          resumen += `<div class="modal-summary-row"><span>⚠ Falta pagar:</span><strong style="color:var(--red)">${fmtUSD(_faltaFrac * _totUsdPago)} en efectivo · ${fmtBS(_faltaFrac * _totBsPago)}</strong></div>`;
+        } else {
+          resumen += `<div class="modal-summary-row"><span>Estado:</span><strong style="color:var(--green)">✓ Saldada</strong></div>`;
         }
       }
       resumen += `<div class="modal-summary-row"><span>IVA:</span><strong style="color:var(--gold)">$ 0.00 (exento)</strong></div>`;
