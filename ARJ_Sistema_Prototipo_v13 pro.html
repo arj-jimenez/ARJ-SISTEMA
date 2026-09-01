@@ -3974,7 +3974,7 @@ GEN-3401    5"
         </div>
         <div class="kpi-card green">
           <div class="kpi-icon"><i class="ti ti-circle-check"></i></div>
-          <div class="kpi-label">Cobrado mes</div>
+          <div class="kpi-label" title="Valor en dólares físicos: los pagos en Bs se registran a su poder de recompra (tasa paralelo), no a tasa BCV. No es comparable con el monto facturado, que está en $BCV.">Cobrado mes ($ verde)</div>
           <div class="kpi-val" style="color:var(--green)" id="kpi-cobrado-mes">$ 0</div>
           <div class="kpi-sub" id="kpi-cobrado-mes-sub">0 pagos</div>
         </div>
@@ -4840,6 +4840,27 @@ GEN-3401    5"
           <div style="margin-top:12px;text-align:right">
             <button class="btn btn-primary btn-sm" onclick="abrirNuevaLista()"><i class="ti ti-plus"></i> Crear lista
               personalizada</button>
+          </div>
+        </div>
+
+        <!-- RESPALDO (v13.30) -->
+        <div class="config-card" id="card-respaldo">
+          <h3><i class="ti ti-database-export" style="color:var(--green)"></i> Respaldo de la base de datos</h3>
+          <p style="font-size:12px;color:var(--dgray);margin-bottom:10px;line-height:1.55">
+            Descarga <strong>todo</strong> lo que hay en Supabase a un solo archivo en tu computadora: productos,
+            facturas, renglones, pagos, clientes, embarques, movimientos y bitácora.
+            El plan Free de Supabase <strong>no hace respaldos automáticos</strong>, así que este archivo es
+            tu única copia si algo le pasa a la base.
+          </p>
+          <div style="background:#FFF4E5;border-left:3px solid #BF8F00;border-radius:6px;padding:9px 11px;font-size:12px;line-height:1.55;margin-bottom:12px">
+            <strong>Hazlo cada viernes</strong> y guarda el archivo en OneDrive, no solo en el disco de la PC.
+            Un respaldo que vive en la misma máquina no te salva si se daña la máquina.
+          </div>
+          <div id="resp-estado" style="font-size:12.5px;margin-bottom:10px"></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <button class="btn btn-primary" id="btn-respaldar" onclick="respaldarTodo()">
+              <i class="ti ti-download"></i> Respaldar todo ahora</button>
+            <span style="font-size:11.5px;color:var(--dgray)" id="resp-ultimo"></span>
           </div>
         </div>
       </div>
@@ -5933,6 +5954,17 @@ GEN-3401    5"
           notif('Los pagos no cubren el total. Faltan $' + _faltaUSD.toFixed(2), 'error'); return;
         }
       }
+      // v13.29 ABONO INICIAL EN CREDITO. Antes los pagos de una factura a
+      // credito se descartaban: la condicion de guardado era `=== 'contado'`.
+      // El cliente entregaba plata, quedaba debiendo el total completo y el
+      // pago no existia en ninguna tabla.
+      // El monto se mide con _fraccion (cada pago contra el total anunciado EN
+      // SU MONEDA) y da $BCV, que es la unidad de saldo_pendiente. Restar
+      // pagos.monto_usd seria mezclar $verde con $BCV.
+      const _abonoIni = (tipoPago === 'credito')
+        ? Math.min(subtotal, Math.round(subtotal * _fraccion * 100) / 100) : 0;
+      const _saldoIni = (tipoPago === 'contado') ? 0
+        : Math.max(0, Math.round((subtotal - _abonoIni) * 100) / 100);
 
       // v13.12 TRAZABILIDAD DEL DESCUENTO POR DIVISAS.
       // Solo lo que se dio POR ENCIMA de la brecha es descuento de verdad: la
@@ -5997,8 +6029,9 @@ GEN-3401    5"
           tipo_pago: tipoPago,
           dias_credito: diasCredito,
           fecha_vence: fechaVence,
-          estado: tipoPago === 'contado' ? 'pagada' : 'pendiente',
-          saldo_pendiente: tipoPago === 'contado' ? 0 : subtotal,
+          estado: (tipoPago === 'contado' || _saldoIni <= 0.01) ? 'pagada'
+            : (_abonoIni > 0 ? 'parcial' : 'pendiente'),
+          saldo_pendiente: _saldoIni,
           // v13.12: el descuento por divisas POR ENCIMA de la brecha se suma al
           // descuento manual y se deja escrito en el motivo. Asi queda en la
           // factura, en el historial y en el export fiscal, no solo en bitacora.
@@ -6079,8 +6112,9 @@ GEN-3401    5"
           }
         }
 
-        // 5. Registrar pagos si es contado
-        if (tipoPago === 'contado' && estado.pagos.length > 0) {
+        // 5. Registrar pagos. v13.29: antes solo se guardaban en contado y el
+        // abono inicial de una factura a credito se perdia.
+        if (estado.pagos.length > 0) {
           const pagosDB = estado.pagos.filter(p => parseFloat(p.monto) > 0).map(p => {
             const montoRaw = parseFloat(p.monto) || 0;
             const montoUSD = p.moneda === 'USD' ? montoRaw : montoRaw / estado.tasa_par;
@@ -6105,7 +6139,7 @@ GEN-3401    5"
         if (tipoPago === 'credito') {
           const campoSaldo = estado.empresa === 'directa' ? 'saldo_vd' : 'saldo_dist';
           const saldoActual = estado.empresa === 'directa' ? clienteSel.saldo_vd : clienteSel.saldo_dist;
-          const nuevoSaldo = (saldoActual || 0) + subtotal;
+          const nuevoSaldo = (saldoActual || 0) + _saldoIni;
           await _sb.from('clientes').update({ [campoSaldo]: nuevoSaldo }).eq('id', clienteSel.id);
           // Actualizar local
           if (estado.empresa === 'directa') clienteSel.saldo_vd = nuevoSaldo;
@@ -6125,8 +6159,8 @@ GEN-3401    5"
           fecha: ahora.toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' }),
           fecha_raw: ahora.toISOString(),
           vence: fechaVence ? new Date(fechaVence).toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' }) : '',
-          total: subtotal, abonado: tipoPago === 'contado' ? subtotal : 0,
-          saldo_pendiente: tipoPago === 'contado' ? 0 : subtotal,
+          total: subtotal, abonado: tipoPago === 'contado' ? subtotal : _abonoIni,
+          saldo_pendiente: _saldoIni,
           estado: facturaObj.estado,
           dias: diasCredito || 0, tipo_pago: tipoPago, tasa_par: estado.tasa_par, tasa_bcv: estado.tasa_bcv,
           factor_bs: facturaObj.factor_bs,
@@ -7705,6 +7739,128 @@ GEN-3401    5"
     }
 
     // ═══════════════════════════════════════════════════════════════
+    // RESPALDO COMPLETO (v13.30)
+    // El plan Free de Supabase NO hace respaldos automaticos. Esto baja todo
+    // a un JSON en la maquina del usuario.
+    //
+    // DOS TRAMPAS QUE ESTA FUNCION EVITA:
+    // 1. Supabase corta en 1000 filas por consulta. Sin paginar, `bitacora`
+    //    se respaldaria truncada Y SIN AVISAR. Se pagina de 1000 en 1000.
+    // 2. Si una tabla falla (no existe, RLS la bloquea), NO se aborta: se
+    //    anota el error y se sigue. Un respaldo parcial declarado vale mas
+    //    que ninguno; uno parcial silencioso es una trampa.
+    // ═══════════════════════════════════════════════════════════════
+    const TABLAS_RESPALDO = [
+      'productos', 'clientes', 'contactos_cliente', 'facturas', 'factura_items',
+      'pagos', 'cotizaciones', 'cotizacion_items', 'embarques', 'recepciones',
+      'recepcion_items', 'traspasos', 'traspaso_items', 'movimientos_caja',
+      'contadores', 'configuracion', 'sistemas', 'perfiles', 'usuarios', 'bitacora',
+      // Existen en la base pero el codigo NO las escribe (verificado v13.31).
+      // Se respaldan igual: si alguien las llena por SQL o las usa el Vue,
+      // el respaldo ya las cubre sin tener que acordarse de agregarlas.
+      'notas_credito', 'nota_credito_items', 'inventario'
+    ];
+    const RESP_PAGINA = 1000;
+
+    async function _respTabla(tabla) {
+      let filas = [], desde = 0;
+      for (let vuelta = 0; vuelta < 200; vuelta++) {       // tope duro anti-bucle
+        const { data, error } = await _sb.from(tabla)
+          .select('*').range(desde, desde + RESP_PAGINA - 1);
+        if (error) return { error: error.message || String(error) };
+        if (!data || data.length === 0) break;
+        filas = filas.concat(data);
+        if (data.length < RESP_PAGINA) break;              // ultima pagina
+        desde += RESP_PAGINA;
+      }
+      return { filas: filas };
+    }
+
+    async function respaldarTodo() {
+      const btn = document.getElementById('btn-respaldar');
+      const est = document.getElementById('resp-estado');
+      if (!_sb || !_supabaseConectado) {
+        notif('Sin conexión a la base. No se puede respaldar.', 'error'); return;
+      }
+      if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader"></i> Respaldando...'; }
+
+      const inicio = Date.now();
+      const datos = {}, conteo = {}, fallos = {};
+      let totalFilas = 0;
+
+      for (let i = 0; i < TABLAS_RESPALDO.length; i++) {
+        const t = TABLAS_RESPALDO[i];
+        if (est) est.innerHTML = '<i class="ti ti-loader"></i> Leyendo <strong>' + t + '</strong>… ('
+          + (i + 1) + ' de ' + TABLAS_RESPALDO.length + ')';
+        const r = await _respTabla(t);
+        if (r.error) { fallos[t] = r.error; continue; }
+        datos[t] = r.filas; conteo[t] = r.filas.length; totalFilas += r.filas.length;
+      }
+
+      const nFallos = Object.keys(fallos).length;
+      const paquete = {
+        _meta: {
+          sistema: 'ARJ', version: 'v13.30',
+          generado: new Date().toISOString(),
+          generado_legible: new Date().toLocaleString('es-VE'),
+          usuario: estado.usuario || '?',
+          proyecto: SUPABASE_URL,
+          tablas_ok: Object.keys(datos).length,
+          tablas_con_error: nFallos,
+          total_filas: totalFilas,
+          conteo_por_tabla: conteo,
+          errores: fallos,
+          nota: 'Respaldo completo de lectura. Para restaurar hace falta reinsertar tabla por tabla respetando el orden de dependencias (productos y clientes primero, luego facturas, luego factura_items y pagos).'
+        },
+        datos: datos
+      };
+
+      const nom = 'ARJ_RESPALDO_' + new Date().toISOString().slice(0, 10).replace(/-/g, '') + '_'
+        + String(new Date().getHours()).padStart(2, '0') + String(new Date().getMinutes()).padStart(2, '0') + '.json';
+      const blob = new Blob([JSON.stringify(paquete, null, 1)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = nom; a.click();
+      URL.revokeObjectURL(a.href);
+
+      const seg = ((Date.now() - inicio) / 1000).toFixed(1);
+      const mb = (blob.size / 1048576).toFixed(2);
+      try { localStorage.setItem('arj_ultimo_respaldo', new Date().toISOString()); } catch (e) { }
+
+      let h = '<div style="padding:9px 11px;border-radius:6px;background:'
+        + (nFallos ? '#FFF4E5;border-left:3px solid #BF8F00' : '#EAF6EC;border-left:3px solid #1E7B34') + '">'
+        + '<strong>' + (nFallos ? '⚠ Respaldo parcial' : '✓ Respaldo completo') + '</strong> — '
+        + totalFilas.toLocaleString('es-VE') + ' filas de ' + Object.keys(datos).length + ' tablas · '
+        + mb + ' MB · ' + seg + 's<br>'
+        + '<span style="font-size:11.5px;color:var(--dgray)">' + nom + '</span>';
+      if (nFallos) {
+        h += '<div style="margin-top:5px;font-size:11.5px"><strong>No se pudo leer:</strong> '
+          + Object.keys(fallos).map(k => k + ' (' + fallos[k] + ')').join(' · ') + '</div>';
+      }
+      h += '</div>';
+      if (est) est.innerHTML = h;
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-download"></i> Respaldar todo ahora'; }
+      _respUltimo();
+      logBitacora('config', 'Respaldo de base: ' + totalFilas + ' filas, ' + Object.keys(datos).length
+        + ' tablas' + (nFallos ? ', ' + nFallos + ' con error' : ''), false);
+      notif(nFallos ? '⚠ Respaldo descargado, pero ' + nFallos + ' tabla(s) fallaron' : '✓ Respaldo descargado — guárdalo en OneDrive', nFallos ? 'warning' : 'success');
+    }
+
+    // Aviso de antiguedad: un respaldo de hace 3 semanas da falsa tranquilidad.
+    function _respUltimo() {
+      const el = document.getElementById('resp-ultimo');
+      if (!el) return;
+      let iso = null;
+      try { iso = localStorage.getItem('arj_ultimo_respaldo'); } catch (e) { }
+      if (!iso) { el.innerHTML = '<span style="color:#B00020;font-weight:600">Nunca has respaldado desde esta PC</span>'; return; }
+      const d = new Date(iso);
+      const dias = Math.floor((Date.now() - d.getTime()) / 86400000);
+      const txt = dias === 0 ? 'hoy' : dias === 1 ? 'ayer' : 'hace ' + dias + ' días';
+      const col = dias >= 14 ? '#B00020' : dias >= 7 ? '#BF8F00' : 'var(--dgray)';
+      el.innerHTML = '<span style="color:' + col + (dias >= 7 ? ';font-weight:600' : '') + '">Último respaldo: '
+        + txt + ' (' + d.toLocaleDateString('es-VE') + ')' + (dias >= 7 ? ' — toca respaldar' : '') + '</span>';
+    }
+
+    // ═══════════════════════════════════════════════════════════════
     // LOGIN
     // ═══════════════════════════════════════════════════════════════
     function autofill(u, p) {
@@ -7977,7 +8133,7 @@ GEN-3401    5"
       if (page === 'movimientos') { movInitMes(); renderMovimientos(); }
       if (page === 'alertas') renderAlertas();
       if (page === 'exportar') renderVentasPendientes();
-      if (page === 'config') { renderListasPrecios(); renderUsuariosConfig(); renderInfoBackup(); }
+      if (page === 'config') { renderListasPrecios(); renderUsuariosConfig(); renderInfoBackup(); _respUltimo(); }
       if (page === 'dashboard') { renderVentasRecientes(); renderMetas(); actualizarKpiStockCritico(); cambiarSubReporte('resumen'); }
     }
 
