@@ -6040,9 +6040,22 @@ GEN-3401    5"
             ? 'Pago en divisas: ' + _dtoDivPct.toFixed(1) + ' pts sobre la brecha ('
               + fmtUSD(_dtoDivMonto) + ')' : ''].filter(Boolean).join(' · '),
           pidio_fiscal: pidioFiscal,
-          factor_bs: colchonFactor()
+          factor_bs: colchonFactor(),
+          // v13.32 El objetivo de "Cobrar en efectivo" se CONGELA en la factura.
+          // Antes vivia solo en el carrito: se usaba para calcular el descuento
+          // y se perdia. Al abonar despues, nadie sabia que se habia acordado
+          // saldar con X en efectivo, y el pago en $ se restaba a valor de cara
+          // contra un saldo en $BCV. Mezcla de unidades.
+          cobrar_verde: (_ajV && _ajV.objetivo > 0) ? _ajV.objetivo : null
         };
-        const { data: factInsert, error: factErr } = await _sb.from('facturas').insert(facturaObj).select().single();
+        let { data: factInsert, error: factErr } = await _sb.from('facturas').insert(facturaObj).select().single();
+        if (factErr && /cobrar_verde/i.test(factErr.message || '')) {
+          console.warn('[ARJ] facturas.cobrar_verde no existe — corre el ALTER TABLE.');
+          const sinCV = Object.assign({}, facturaObj); delete sinCV.cobrar_verde;
+          const r2 = await _sb.from('facturas').insert(sinCV).select().single();
+          factInsert = r2.data; factErr = r2.error;
+          if (!factErr) notif('\u26a0 Emitida, pero el objetivo en efectivo no se guardó: falta la columna.', 'warning');
+        }
         if (factErr) { notif('Error creando factura: ' + factErr.message, 'error'); return; }
         const facturaId = factInsert.id;
 
@@ -6159,6 +6172,7 @@ GEN-3401    5"
           fecha: ahora.toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' }),
           fecha_raw: ahora.toISOString(),
           vence: fechaVence ? new Date(fechaVence).toLocaleDateString('es-VE', { day: '2-digit', month: 'short', year: 'numeric' }) : '',
+          cobrar_verde: (_ajV && _ajV.objetivo > 0) ? _ajV.objetivo : null,
           total: subtotal, abonado: tipoPago === 'contado' ? subtotal : _abonoIni,
           saldo_pendiente: _saldoIni,
           estado: facturaObj.estado,
@@ -14807,6 +14821,15 @@ function renderHistorial(){
       cerrarDetalleFactura();
       // Bs a tasa del DÍA (no congelada)
       const saldoBsHoy = f.saldo_pendiente * factorBsDe(f) * estado.tasa_bcv; // v13.12: factor congelado de la factura
+      // v13.32 Cuanto efectivo en $ salda esta factura HOY.
+      // Si al emitir se acordo un monto redondo ("Cobrar en efectivo"), manda
+      // ese; si no, el equivalente a la brecha del dia. Se prorratea sobre el
+      // saldo: si ya hubo abonos parciales, el objetivo baja en proporcion.
+      const _cvFactura = parseFloat(f.cobrar_verde) || 0;
+      const _cvAcordado = _cvFactura > 0 && f.total > 0;
+      const _efectivoObjetivo = _cvAcordado
+        ? Math.round(_cvFactura * (f.saldo_pendiente / f.total) * 100) / 100
+        : totalEnDivisas(f.saldo_pendiente);
       let modal = document.getElementById('modal-abono');
       if (!modal) {
         modal = document.createElement('div');
@@ -14830,6 +14853,8 @@ function renderHistorial(){
             <strong style="text-align:right;color:var(--red)">${fmtUSD(f.saldo_pendiente)}</strong>
             <span style="color:var(--dgray)">Con resguardo (${((factorBsDe(f) - 1) * 100).toFixed(1)}%) ⓘ:</span>
             <strong style="text-align:right;color:var(--gold)" title="El saldo más el resguardo cambiario que se congeló al emitir esta factura. Es la cifra que se convierte a bolívares.">${fmtUSD(f.saldo_pendiente * factorBsDe(f))}</strong>
+            <span style="color:var(--dgray)">Cobrar HOY en efectivo $:</span>
+            <strong style="text-align:right;color:var(--green)" title="${_cvAcordado ? 'Objetivo de efectivo acordado al emitir esta factura.' : 'Equivalente del saldo en dólares físicos, a la brecha de hoy.'}">${fmtUSD(_efectivoObjetivo)}${_cvAcordado ? ' <span style="font-size:9px;color:var(--gold)">ACORDADO</span>' : ''}</strong>
             <span style="color:var(--dgray);border-top:1px solid var(--border);padding-top:4px">Cobrar HOY en Bs:</span>
             <strong style="text-align:right;color:var(--navy);font-size:13px;border-top:1px solid var(--border);padding-top:4px">${fmtBS(saldoBsHoy)}</strong>
           </div>
@@ -14848,6 +14873,26 @@ function renderHistorial(){
           </div>
           <div style="font-size:10.5px;color:var(--dgray);margin-top:3px"><i class="ti ti-info-circle"></i> Acepta cualquier formato: 59.818,55 · 59818.55 · 59818,55</div>
         </div>
+        <!-- v13.32 Solo para pagos en $: el usuario decide como se acredita. -->
+        <div id="abono-modo-box" style="display:none;background:#F2F5FA;border-radius:6px;padding:9px 11px">
+          <div style="font-size:11.5px;font-weight:600;margin-bottom:5px">¿Cómo acredito este pago en efectivo?</div>
+          <label style="display:flex;gap:6px;align-items:flex-start;cursor:pointer;margin-bottom:5px;font-size:12px">
+            <input type="radio" name="abono-modo" value="saldar" onchange="_abonoPreview()" style="margin-top:2px">
+            <span><strong>Saldar la factura completa</strong><br>
+              <span style="color:var(--dgray);font-size:11px" id="abono-m1"></span></span>
+          </label>
+          <label style="display:flex;gap:6px;align-items:flex-start;cursor:pointer;margin-bottom:5px;font-size:12px">
+            <input type="radio" name="abono-modo" value="convertir" onchange="_abonoPreview()" style="margin-top:2px">
+            <span><strong>Convertir a $BCV</strong><br>
+              <span style="color:var(--dgray);font-size:11px" id="abono-m2"></span></span>
+          </label>
+          <label style="display:flex;gap:6px;align-items:flex-start;cursor:pointer;font-size:12px">
+            <input type="radio" name="abono-modo" value="cara" onchange="_abonoPreview()" style="margin-top:2px">
+            <span><strong>Al valor de la cara</strong><br>
+              <span style="color:var(--dgray);font-size:11px" id="abono-m3"></span></span>
+          </label>
+          <div id="abono-preview" style="margin-top:7px;padding-top:6px;border-top:1px solid var(--border);font-size:12.5px"></div>
+        </div>
         <div>
           <label style="font-size:12px;font-weight:600;display:block;margin-bottom:3px">Método de pago *</label>
           <select id="abono-metodo" onchange="abonoToggleRefReq()" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit">
@@ -14865,6 +14910,11 @@ function renderHistorial(){
         </div>
       </div>
     </div>`;
+_abonoCtx = { f: f, objetivo: _efectivoObjetivo, acordado: _cvAcordado };
+      const _im = document.getElementById('abono-monto');
+      const _mo = document.getElementById('abono-moneda');
+      if (_im) _im.addEventListener('input', _abonoPreview);
+      if (_mo) _mo.addEventListener('change', _abonoPreview);
       modal.classList.add('show');
       setTimeout(() => { document.getElementById('abono-monto')?.focus(); abonoToggleRefReq(); }, 100);
     }
@@ -14885,9 +14935,84 @@ function renderHistorial(){
         if (/Bs\.|m[oó]vil|punto de venta/i.test(m)) monedaSel.value = 'Bs';
         else if (/USD|Zelle/i.test(m)) monedaSel.value = 'USD';
       }
+      if (typeof _abonoPreview === 'function') _abonoPreview();
     }
 
-    function cerrarAbono() { const m = document.getElementById('modal-abono'); if (m) m.classList.remove('show'); }
+    function cerrarAbono() { const m = document.getElementById('modal-abono'); if (m) m.classList.remove('show'); _abonoCtx = null; }
+
+    // ═══════════════════════════════════════════════════════════════
+    // v13.32 ACREDITACIÓN DE ABONOS EN EFECTivo — el usuario decide.
+    // El problema: `saldo_pendiente` esta en $BCV y un pago en efectivo esta
+    // en $verde. Restarlos directo deja al cliente debiendo de mas. Ahora se
+    // muestran las tres lecturas posibles y se elige, con vista previa.
+    // ═══════════════════════════════════════════════════════════════
+    let _abonoCtx = null;   // { f, objetivo, acordado }
+
+    function _abonoParse(s) {
+      if (!s) return 0;
+      s = String(s).replace(/[^\d.,]/g, '');
+      const tieneComa = s.includes(','), tienePunto = s.includes('.');
+      if (tieneComa && tienePunto) {
+        s = (s.lastIndexOf(',') > s.lastIndexOf('.'))
+          ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, '');
+      } else if (tieneComa) {
+        const p = s.split(',');
+        s = (p.length === 2 && p[1].length <= 2) ? p[0] + '.' + p[1] : s.replace(/,/g, '');
+      } else if (tienePunto) {
+        const p = s.split('.');
+        if (p.length > 2) s = s.replace(/\./g, '');
+        else if (p.length === 2 && p[1].length === 3 && p[0].length > 0) s = s.replace(/\./g, '');
+      }
+      return parseFloat(s) || 0;
+    }
+
+    // Cuanto $BCV acredita un monto en efectivo, segun el modo elegido.
+    function _abonoAcredita(monto, modo) {
+      const c = _abonoCtx; if (!c) return monto;
+      if (modo === 'saldar') return c.f.saldo_pendiente;
+      if (modo === 'convertir') {
+        const d = dtoDivisaPct();
+        return d < 100 ? Math.round(monto / (1 - d / 100) * 100) / 100 : monto;
+      }
+      return monto;                                   // 'cara'
+    }
+
+    function _abonoPreview() {
+      const c = _abonoCtx; if (!c) return;
+      const box = document.getElementById('abono-modo-box');
+      const moneda = document.getElementById('abono-moneda')?.value || 'USD';
+      const monto = _abonoParse(document.getElementById('abono-monto')?.value || '');
+      // Los pagos en Bs ya tienen su propia regla (cubre el "Cobrar HOY" → salda).
+      if (!box) return;
+      if (moneda !== 'USD' || monto <= 0) { box.style.display = 'none'; return; }
+      box.style.display = 'block';
+
+      const cubre = monto >= c.objetivo - 1;
+      const s1 = document.getElementById('abono-m1');
+      const s2 = document.getElementById('abono-m2');
+      const s3 = document.getElementById('abono-m3');
+      if (s1) s1.innerHTML = 'Acredita ' + fmtUSD(c.f.saldo_pendiente) + ' y deja la factura en cero.'
+        + (cubre ? ' <span style="color:#1E7B34;font-weight:700">Cubre el objetivo de ' + fmtUSD(c.objetivo) + '</span>'
+          : ' <span style="color:#B00020">Faltan ' + fmtUSD(c.objetivo - monto) + ' para el objetivo de ' + fmtUSD(c.objetivo) + '</span>');
+      if (s2) s2.innerHTML = 'Acredita ' + fmtUSD(_abonoAcredita(monto, 'convertir'))
+        + ' — el efectivo vale más en $BCV (brecha de hoy −' + dtoDivisaPct().toFixed(1) + '%).';
+      if (s3) s3.innerHTML = 'Acredita ' + fmtUSD(monto) + ' — sin convertir. Úsalo solo si el precio ya estaba en $BCV.';
+
+      // Preselección: si cubre el objetivo, lo natural es saldar.
+      let sel = document.querySelector('input[name="abono-modo"]:checked');
+      if (!sel) {
+        const v = cubre ? 'saldar' : 'convertir';
+        const r = document.querySelector('input[name="abono-modo"][value="' + v + '"]');
+        if (r) { r.checked = true; sel = r; }
+      }
+      const modo = sel ? sel.value : 'convertir';
+      let acred = _abonoAcredita(monto, modo);
+      acred = Math.min(acred, c.f.saldo_pendiente);
+      const resto = Math.round((c.f.saldo_pendiente - acred) * 100) / 100;
+      const pv = document.getElementById('abono-preview');
+      if (pv) pv.innerHTML = 'Acredita <strong>' + fmtUSD(acred) + '</strong> · saldo queda en <strong style="color:'
+        + (resto <= 0.01 ? '#1E7B34' : '#B00020') + '">' + fmtUSD(Math.max(0, resto)) + '</strong>';
+    }
 
    async function confirmarAbono(num){
   if(window._abonoEnProceso) return;
@@ -14967,11 +15092,14 @@ function renderHistorial(){
             notif('El abono excede el saldo pendiente', 'error'); return;
           }
         } else {
-          // Pago en USD: validación estricta
-          if (montoUSD > f.saldo_pendiente + 1) {
-            notif('El abono ($' + montoUSD.toFixed(2) + ') excede el saldo pendiente ($' + f.saldo_pendiente.toFixed(2) + ')', 'error');
-            return;
-          }
+          // v13.32 Pago en $: se acredita segun el modo elegido por el usuario.
+          // Antes se restaba el valor de cara ($verde) contra saldo_pendiente
+          // ($BCV) y el cliente quedaba debiendo de mas.
+          const _sel = document.querySelector('input[name="abono-modo"]:checked');
+          const _modo = _sel ? _sel.value : 'cara';
+          montoUSD = _abonoAcredita(montoIn, _modo);
+          if (montoUSD > f.saldo_pendiente) montoUSD = f.saldo_pendiente;  // topar, nunca saldo negativo
+          if (montoUSD <= 0) { notif('El monto acreditado da cero. Revisa el modo elegido.', 'error'); return; }
         }
       }
 
