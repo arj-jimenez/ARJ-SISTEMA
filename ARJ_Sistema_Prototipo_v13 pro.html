@@ -4178,7 +4178,7 @@ GEN-3401    5"
           style="flex:1;min-width:200px;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:inherit">
         <select id="hist-estado" onchange="renderHistorial()"
           style="padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:inherit">
-          <option value="">Todos los estados</option>
+          <option value="">Todos (sin anuladas)</option>
           <option value="pagada">Pagadas</option>
         <option value="no_pagada">No pagadas (pend.+parc.+venc.)</option>
           <option value="pendiente">Pendientes</option>
@@ -6000,7 +6000,15 @@ GEN-3401    5"
         const { data: contData, error: contErr } = await _sb.from('contadores').select('*').eq('tipo', tipoContador).eq('anio', anio).single();
         if (contErr || !contData) { notif('Error obteniendo número de factura', 'error'); return; }
         const nuevoNum = contData.ultimo_numero + 1;
-        await _sb.from('contadores').update({ ultimo_numero: nuevoNum }).eq('id', contData.id);
+        // v13.33 SEGURIDAD: si no se puede reservar el correlativo, NO se emite.
+        // Emitir sin avanzar el contador haria que la proxima factura repita numero.
+        const { error: contUpdErr } = await _sb.from('contadores')
+          .update({ ultimo_numero: nuevoNum }).eq('id', contData.id);
+        if (contUpdErr) {
+          console.error('[ARJ] Error reservando correlativo:', contUpdErr);
+          notif('No se pudo reservar el numero de factura. NO se emitio nada. Reintenta.', 'error');
+          return;
+        }
         const numFactura = prefijo + '-' + anio + '-' + String(nuevoNum).padStart(5, '0');
 
         // Fecha vencimiento
@@ -6108,21 +6116,39 @@ GEN-3401    5"
         }
 
         // 4. Descontar stock
+        // v13.33 SEGURIDAD: antes el update no revisaba error y el local se
+        // actualizaba igual. Resultado: la pantalla mostraba un stock y la base
+        // otro, sin aviso. Ahora el local solo se toca si la base confirmo, asi
+        // al recargar no hay dos verdades.
         const campoStock = estado.empresa === 'directa' ? 'stock_vd' : 'stock_dist';
+        const _stockFallo = [];
         for (const it of estado.items) {
           // Buscar el producto por cod_alt para obtener su id y stock actual
           const prod = PRODUCTOS.find(p => p.cod_alt === it.cod);
           if (prod) {
             const stockActual = estado.empresa === 'directa' ? prod.stock_vd : prod.stock_dist;
             const nuevoStock = stockActual - it.cant;
+            let _stockOk = true;
             // Actualizar en Supabase
             if (prod.id) {
-              await _sb.from('productos').update({ [campoStock]: nuevoStock }).eq('id', prod.id);
+              const { error: stkErr } = await _sb.from('productos')
+                .update({ [campoStock]: nuevoStock }).eq('id', prod.id);
+              if (stkErr) {
+                _stockOk = false;
+                _stockFallo.push(it.cod);
+                console.error('[ARJ] Error descontando stock de ' + it.cod + ':', stkErr);
+              }
             }
-            // Actualizar local
-            if (estado.empresa === 'directa') prod.stock_vd = nuevoStock;
-            else prod.stock_dist = nuevoStock;
+            // Actualizar local SOLO si la base confirmo
+            if (_stockOk) {
+              if (estado.empresa === 'directa') prod.stock_vd = nuevoStock;
+              else prod.stock_dist = nuevoStock;
+            }
           }
+        }
+        if (_stockFallo.length > 0) {
+          notif('\u26a0 El stock NO se descargo de: ' + _stockFallo.join(', ')
+              + '. Ajustalo a mano en Inventario.', 'error');
         }
 
         // 5. Registrar pagos. v13.29: antes solo se guardaban en contado y el
@@ -6153,10 +6179,21 @@ GEN-3401    5"
           const campoSaldo = estado.empresa === 'directa' ? 'saldo_vd' : 'saldo_dist';
           const saldoActual = estado.empresa === 'directa' ? clienteSel.saldo_vd : clienteSel.saldo_dist;
           const nuevoSaldo = (saldoActual || 0) + _saldoIni;
-          await _sb.from('clientes').update({ [campoSaldo]: nuevoSaldo }).eq('id', clienteSel.id);
-          // Actualizar local
-          if (estado.empresa === 'directa') clienteSel.saldo_vd = nuevoSaldo;
-          else clienteSel.saldo_dist = nuevoSaldo;
+          // v13.33 SEGURIDAD: el mas peligroso de los tres. Si esto fallaba en
+          // silencio quedaba una factura a credito emitida que el cliente no debe.
+          // El local no se toca si la base fallo, para que el error sea visible.
+          const { error: cliErr } = await _sb.from('clientes')
+            .update({ [campoSaldo]: nuevoSaldo }).eq('id', clienteSel.id);
+          if (cliErr) {
+            console.error('[ARJ] Error actualizando saldo del cliente:', cliErr);
+            notif('\u26a0 GRAVE: ' + numFactura + ' se emitio pero el saldo de '
+                + clienteSel.nombre + ' NO subio $' + _saldoIni.toFixed(2)
+                + '. Corrigelo a mano en Clientes.', 'error');
+          } else {
+            // Actualizar local
+            if (estado.empresa === 'directa') clienteSel.saldo_vd = nuevoSaldo;
+            else clienteSel.saldo_dist = nuevoSaldo;
+          }
         }
 
         // 7. Bitácora
@@ -7814,7 +7851,7 @@ GEN-3401    5"
       const nFallos = Object.keys(fallos).length;
       const paquete = {
         _meta: {
-          sistema: 'ARJ', version: 'v13.30',
+          sistema: 'ARJ', version: 'v13.33',
           generado: new Date().toISOString(),
           generado_legible: new Date().toLocaleString('es-VE'),
           usuario: estado.usuario || '?',
@@ -14565,8 +14602,14 @@ function renderHistorial(){
       if (_histTab === 'facturas') {
         let datos = TODAS_FACTURAS.filter(f => f.empresa === estado.empresa);
         if (buscar) datos = datos.filter(f => (f.num || '').toLowerCase().includes(buscar) || (f.cliente || '').toLowerCase().includes(buscar) || (f.vendedor || '').toLowerCase().includes(buscar));
+      // v13.33 Sin filtro explicito, las anuladas NO se listan: el KPI "Total
+      // facturas" de arriba ya las excluye y la tabla mostraba mas filas que el
+      // numero. Siguen accesibles eligiendo "Anuladas" en el selector. No se
+      // borra nada: la anulacion es el registro de que la operacion existio.
+      const _anulOcultas = datos.filter(f => f.estado === 'anulada').length;
       if(filtroEstado === 'no_pagada') datos = datos.filter(f => f.estado !== 'pagada' && f.estado !== 'anulada');
     else if(filtroEstado) datos = datos.filter(f => f.estado === filtroEstado);
+      else datos = datos.filter(f => f.estado !== 'anulada');
         const all = TODAS_FACTURAS.filter(f => f.empresa === estado.empresa && f.estado !== 'anulada');
         const el1 = document.getElementById('hist-total-facturas');
         const el2 = document.getElementById('hist-pagadas');
@@ -14580,7 +14623,14 @@ function renderHistorial(){
         if (el4) el4.textContent = fmtUSD(ventasMes);
 
         if (datos.length === 0) { cont.innerHTML = '<div style="text-align:center;padding:60px 20px;color:var(--dgray);background:#FFF;border-radius:8px;border:1px solid var(--border)"><i class="ti ti-file-off" style="font-size:48px;display:block;margin-bottom:12px;opacity:0.4"></i><div style="font-size:14px;font-weight:600;color:var(--dgray)">No hay facturas ' + (buscar ? 'que coincidan' : 'aún') + '</div><div style="font-size:12px;margin-top:4px">Las facturas aparecerán aquí al emitirlas</div></div>'; return; }
-        let html = '<div style="background:#FFF;border-radius:8px;border:1px solid var(--border);overflow:hidden"><table class="data-table" style="margin:0"><thead style="background:var(--sky)"><tr><th style="width:5%">#</th><th>N°</th><th>Fecha</th><th>Cliente</th><th>Vendedor</th><th class="num">Total</th><th class="num">Saldo</th><th>Estado</th><th>Tipo</th><th class="center" style="width:60px">Acción</th></tr></thead><tbody>';
+        let html = '';
+        if (!filtroEstado && _anulOcultas > 0) {
+          html += '<div style="font-size:11px;color:var(--dgray);margin-bottom:6px">'
+               + '<i class="ti ti-eye-off"></i> ' + _anulOcultas + ' anulada'
+               + (_anulOcultas === 1 ? '' : 's') + ' oculta' + (_anulOcultas === 1 ? '' : 's')
+               + ' \u00b7 elige "Anuladas" en el filtro para verlas</div>';
+        }
+        html += '<div style="background:#FFF;border-radius:8px;border:1px solid var(--border);overflow:hidden"><table class="data-table" style="margin:0"><thead style="background:var(--sky)"><tr><th style="width:5%">#</th><th>N°</th><th>Fecha</th><th>Cliente</th><th>Vendedor</th><th class="num">Total</th><th class="num">Saldo</th><th>Estado</th><th>Tipo</th><th class="center" style="width:60px">Acción</th></tr></thead><tbody>';
         datos.forEach((f, idx) => {
           const anuladaStyle = f.estado === 'anulada' ? 'opacity:0.55;text-decoration:line-through' : '';
           const rowBg = idx % 2 ? 'background:#FAFBFC' : '';
