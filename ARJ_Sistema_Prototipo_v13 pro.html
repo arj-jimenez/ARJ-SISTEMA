@@ -12363,39 +12363,66 @@ GEN-3401    5"
       btn.disabled = true; btn.textContent = 'Emitiendo...';
 
       try {
-        // 1. Stock de vuelta al almacén de la empresa de la factura
+        // 1. Stock de vuelta al almacén de la empresa de la factura.
+        // v13.33 El local solo se toca si la base confirmo, para no mostrar un
+        // stock que la base no tiene.
         const campoStock = f.empresa === 'directa' ? 'stock_vd' : 'stock_dist';
+        const _ncStockFallo = [];
         for (const it of dev) {
           if (!it.producto_id) continue;
           const { data: prod } = await _sb.from('productos').select(campoStock).eq('id', it.producto_id).single();
           if (!prod) continue;
           const nuevo = (prod[campoStock] || 0) + it.devolver;
-          await _sb.from('productos').update({ [campoStock]: nuevo }).eq('id', it.producto_id);
+          const { error: ncStkErr } = await _sb.from('productos')
+            .update({ [campoStock]: nuevo }).eq('id', it.producto_id);
+          if (ncStkErr) {
+            console.error('[ARJ] NC: error devolviendo stock de ' + it.cod + ':', ncStkErr);
+            _ncStockFallo.push(it.cod);
+            continue;
+          }
           const pl = PRODUCTOS.find(p => p.id === it.producto_id);
           if (pl) pl[campoStock] = nuevo;
+        }
+        if (_ncStockFallo.length > 0) {
+          notif('\u26a0 El stock NO volvio de: ' + _ncStockFallo.join(', ') + '. Ajustalo en Inventario.', 'error');
         }
 
         // 2. Pago negativo. La referencia lleva el detalle codificado para poder
         //    reconstruir cuánto se devolvió de cada renglón en notas futuras.
+        // v13.33 UNIDADES. `tot` sale de los precios de la factura, o sea $BCV,
+        // pero pagos.monto_usd es $verde: registrar -tot inflaba el credito ~16%
+        // y ensuciaba el KPI "Cobrado mes ($ verde)". Se convierte a la brecha
+        // del dia, igual que en la anulacion.
+        const _aVerde = (bcv) => Math.round(bcv * (1 - dtoDivisaNeutro() / 100) * 100) / 100;
+        const _totVerde = _aVerde(tot);
         const detalle = dev.map(it => `${it.cod}=${it.devolver}`).join(';');
-        await _sb.from('pagos').insert({
+        const { error: ncPagErr } = await _sb.from('pagos').insert({
           factura_id: f.id,
-          monto_usd: -tot,
-          monto_bs: -(tot * colchonFactor() * estado.tasa_bcv),
+          monto_usd: -_totVerde,
+          monto_bs: -Math.round(_totVerde * estado.tasa_par * 100) / 100,
           tasa_usada: estado.tasa_par,
           metodo: 'Nota de crédito',
           referencia: `NC:${detalle}| ${motivo}`,
           registrado_por: estado.usuario || 'Sistema'
         });
+        if (ncPagErr) throw ncPagErr;   // sin este registro la nota no existe
 
         // 3. Saldo de la factura
         const nuevoSaldo = Math.max(0, saldoAntes - aplicaSaldo);
-        await _sb.from('facturas').update({
+        // v13.33 Antes el local se actualizaba aunque la base fallara: la
+        // pantalla decia "pagada" y la base seguia con el saldo entero.
+        const { error: ncFacErr } = await _sb.from('facturas').update({
           saldo_pendiente: nuevoSaldo,
           estado: nuevoSaldo < 0.01 ? 'pagada' : f.estado
         }).eq('id', f.id);
-        f.saldo_pendiente = nuevoSaldo;
-        if (nuevoSaldo < 0.01) f.estado = 'pagada';
+        if (ncFacErr) {
+          console.error('[ARJ] NC: error actualizando saldo de la factura:', ncFacErr);
+          notif('\u26a0 GRAVE: el stock volvio y la nota quedo registrada, pero el saldo de '
+              + f.num + ' NO bajo ' + fmtUSD(aplicaSaldo) + '. Corrigelo antes de cobrar.', 'error');
+        } else {
+          f.saldo_pendiente = nuevoSaldo;
+          if (nuevoSaldo < 0.01) f.estado = 'pagada';
+        }
 
         // 4. Saldo del cliente
         const cli = CLIENTES.find(c => c.id === f.cliente_id);
@@ -12406,20 +12433,36 @@ GEN-3401    5"
           // justamente un anticipo a favor del cliente, no un error.
           const baja = destino === 'favor' ? tot : aplicaSaldo;
           const nuevoCli = actual - baja;
-          await _sb.from('clientes').update({ [campoSaldo]: nuevoCli }).eq('id', cli.id);
-          if (f.empresa === 'directa') cli.saldo_vd = nuevoCli; else cli.saldo_dist = nuevoCli;
+          const { error: ncCliErr } = await _sb.from('clientes')
+            .update({ [campoSaldo]: nuevoCli }).eq('id', cli.id);
+          if (ncCliErr) {
+            console.error('[ARJ] NC: error actualizando saldo del cliente:', ncCliErr);
+            notif('\u26a0 El saldo global de ' + (cli.nombre || 'el cliente')
+                + ' NO bajo ' + fmtUSD(baja) + '. Corrigelo en Clientes.', 'error');
+          } else {
+            if (f.empresa === 'directa') cli.saldo_vd = nuevoCli; else cli.saldo_dist = nuevoCli;
+          }
         }
 
         // 5. Si se devuelve efectivo, sale de caja y tiene que verse en Movimientos
         if (destino === 'efectivo' && sobrante > 0.009) {
-          await _sb.from('movimientos_caja').insert({
+          // v13.33 movimientos_caja.monto_usd tambien es $verde: es plata que
+          // sale de caja de verdad, no valor de factura.
+          const _sobVerde = _aVerde(sobrante);
+          const { error: ncMovErr } = await _sb.from('movimientos_caja').insert({
             tipo: 'salida', categoria: 'dev_cliente', clasificacion: 'no_gasto',
             concepto: `Devolución por nota de crédito ${f.num}`,
-            monto_usd: sobrante, monto_bs: sobrante * colchonFactor() * estado.tasa_bcv,
+            monto_usd: _sobVerde,
+            monto_bs: Math.round(_sobVerde * estado.tasa_par * 100) / 100,
             moneda: 'USD', tasa_usada: estado.tasa_par, tasa_bcv_ref: estado.tasa_bcv,
             empresa: f.empresa, afecta_caja: true, anulado: false,
             registrado_por: estado.usuario || 'Sistema'
           });
+          if (ncMovErr) {
+            console.error('[ARJ] NC: error registrando la salida de caja:', ncMovErr);
+            notif('\u26a0 Se devolvieron ' + fmtUSD(_sobVerde)
+                + ' en efectivo pero NO quedaron en Movimientos. Registralo a mano.', 'error');
+          }
         }
 
         const txt = `Nota de crédito sobre ${f.num} por ${fmtUSD(tot)} (${totDev} unidades: ${detalle}) — ${destino === 'efectivo' ? 'efectivo devuelto' : 'a favor del cliente'} — motivo: "${motivo}"`;
@@ -14764,6 +14807,47 @@ function renderHistorial(){
     // que parte fue conversion (no es descuento) y que parte se regalo de
     // verdad. Si no se distingue, dentro de tres meses nadie sabe si un total
     // bajo fue la brecha del dia o una concesion comercial.
+    // v13.33 Las tasas con las que se emitio la factura quedan guardadas
+    // (facturas.tasa_bcv / tasa_par / factor_bs) pero no se veian en ninguna
+    // parte. Sin eso, ver un total de $592 saldado con un pago de $492,30
+    // parece un error, cuando es la brecha de ese dia. Es informacion interna:
+    // no sale en el documento que se le entrega al cliente.
+    function _bloqueTasas(f) {
+      const tb = parseFloat(f.tasa_bcv), tp = parseFloat(f.tasa_par);
+      const hayBcv = isFinite(tb) && tb > 0, hayPar = isFinite(tp) && tp > 0;
+      if (!hayBcv && !hayPar) return '';
+      const fila = (et, val, extra) => '<div style="display:flex;justify-content:space-between;gap:10px;'
+        + 'font-size:11.5px;margin-bottom:3px' + (extra || '') + '">'
+        + '<span style="color:var(--dgray)">' + et + '</span><strong style="font-variant-numeric:tabular-nums">'
+        + val + '</strong></div>';
+      let filas = '';
+      if (hayBcv) filas += fila('BCV al emitir', fmtBS(tb));
+      if (hayPar) filas += fila('Paralelo al emitir', fmtBS(tp));
+      if (hayBcv && hayPar) {
+        const br = (tp / tb - 1) * 100;
+        filas += fila('Brecha de ese día', br.toFixed(2) + '%');
+      }
+      const fac = f.factor_bs != null ? parseFloat(f.factor_bs) : null;
+      if (fac != null && isFinite(fac) && Math.abs(fac - 1) > 0.0001) {
+        filas += fila('Resguardo congelado', ((fac - 1) * 100).toFixed(2) + '%');
+      }
+      if (hayBcv) {
+        filas += fila('Total en Bs (a BCV congelado)', fmtBS((f.total || 0) * (fac || 1)  * tb),
+          ';border-top:1px solid var(--border);padding-top:5px;margin-top:5px');
+      }
+      let nota = '';
+      if (hayBcv && hayPar) {
+        const verde = (f.total || 0) / (tp / tb);
+        nota = '<div style="font-size:10.5px;color:var(--dgray);line-height:1.45;margin-top:6px;'
+          + 'border-top:1px solid var(--border);padding-top:5px">'
+          + 'El total está en $BCV. En efectivo valía <strong>' + fmtUSD(verde)
+          + '</strong> ese día — por eso un pago menor puede dejar la factura en cero.</div>';
+      }
+      return '<div style="background:#F5F5F5;border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-top:8px">'
+        + '<div style="font-size:10.5px;text-transform:uppercase;font-weight:700;color:var(--dgray);margin-bottom:6px">'
+        + 'Tasas congeladas <span style="color:#999;font-weight:600">· interno</span></div>' + filas + nota + '</div>';
+    }
+
     function _bloqueDivisas(f, pagos) {
       const enUsd = (pagos || []).filter(p => (p.metodo || '').toLowerCase().indexOf('usd') >= 0
         || (p.metodo || '').toLowerCase().indexOf('divisa') >= 0
@@ -14821,9 +14905,14 @@ function renderHistorial(){
     <tr><td class="center">${i + 1}</td><td style="font-family:monospace;font-weight:600">${it.cod_alt}</td><td>${it.descripcion}</td><td class="num">${it.cantidad}</td><td class="num">${fmtUSD(it.precio_unitario)}</td><td class="num"><strong>${fmtUSD(it.total_linea)}</strong></td></tr>
   `).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--dgray);padding:20px">Sin ítems registrados</td></tr>';
 
-      let pagosHTML = pagos.length ? pagos.map(p => `
-    <tr><td>${new Date(p.fecha).toLocaleString('es-VE', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</td><td>${p.metodo}</td><td>${p.referencia || '—'}</td><td class="num">${fmtUSD(p.monto_usd)}</td></tr>
-  `).join('') : '<tr><td colspan="4" style="text-align:center;color:var(--dgray);padding:14px">Sin pagos registrados</td></tr>';
+      // v13.33 Se muestran los bolivares realmente movidos debajo del monto:
+      // en un pago movil, el Bs es la cifra que aparece en el comprobante del
+      // banco y es lo unico con lo que se puede conciliar.
+      let pagosHTML = pagos.length ? pagos.map(p => {
+        const bs = parseFloat(p.monto_bs) || 0;
+        return `
+    <tr><td>${new Date(p.fecha).toLocaleString('es-VE', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</td><td>${p.metodo}</td><td>${p.referencia || '—'}</td><td class="num"><strong>${fmtUSD(p.monto_usd)}</strong>${Math.abs(bs) > 0.009 ? `<div style="font-size:10px;color:var(--dgray);font-weight:400">${fmtBS(bs)}</div>` : ''}</td></tr>`;
+      }).join('') : '<tr><td colspan="4" style="text-align:center;color:var(--dgray);padding:14px">Sin pagos registrados</td></tr>';
 
       const anuladaBox = (f.estado === 'anulada' && motivoAnul) ? `
     <div style="background:var(--lred);border:2px solid var(--red);border-radius:8px;padding:12px 14px;margin-bottom:14px">
@@ -14868,7 +14957,7 @@ function renderHistorial(){
         <div>
           <h3 style="font-size:13px;color:var(--navy);margin-bottom:8px"><i class="ti ti-cash"></i> Historial de pagos</h3>
           <table class="data-table" style="margin:0;font-size:11px">
-            <thead style="background:var(--sky)"><tr><th>Fecha</th><th>Método</th><th>Ref.</th><th class="num">Monto USD</th></tr></thead>
+            <thead style="background:var(--sky)"><tr><th>Fecha</th><th>Método</th><th>Ref.</th><th class="num" title="Dólares en efectivo (verde) — no $BCV">Cobrado $</th></tr></thead>
             <tbody>${pagosHTML}</tbody>
           </table>
         </div>
@@ -14881,6 +14970,7 @@ function renderHistorial(){
             <div style="display:flex;justify-content:space-between;font-size:13px;font-weight:700;color:${f.saldo_pendiente > 0 ? '#FFCDD2' : '#C8E6C9'}"><span>Saldo pendiente:</span><span>${fmtUSD(f.saldo_pendiente || 0)}</span></div>
           </div>
           ${_bloqueDivisas(f, pagos)}
+          ${_bloqueTasas(f)}
           ${f.estado !== 'anulada' && f.estado !== 'pagada' ? `<button class="btn btn-primary" style="width:100%;margin-top:8px" onclick="abrirAbono('${f.num}')"><i class="ti ti-cash-banknote"></i> Registrar abono</button>` : ''}
           ${f.estado !== 'anulada' ? `<button class="btn btn-secondary" style="width:100%;margin-top:6px" onclick="reimprimirFactura('${f.num}')"><i class="ti ti-printer"></i> Reimprimir</button>` : ''}
           ${f.estado !== 'anulada' ? `<button class="btn btn-secondary" style="width:100%;margin-top:6px;color:var(--red);border-color:var(--red)" onclick="cerrarDetalleFactura();abrirAnular('${f.num}','${f.cliente}')"><i class="ti ti-ban"></i> Anular factura</button>` : ''}
