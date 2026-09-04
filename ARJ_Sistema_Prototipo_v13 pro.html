@@ -4457,6 +4457,8 @@ GEN-3401    5"
           (jefe, almacén, compras) y todas sus facturas.</div>
       </div>
 
+      <div id="clientes-origen-panel" style="margin-bottom:10px"></div>
+
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
         <input type="text" id="buscar-cliente-lista" placeholder="Buscar cliente..." oninput="renderClientes()"
           style="padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:inherit;width:250px">
@@ -4474,6 +4476,7 @@ GEN-3401    5"
               <th>Contacto</th>
               <th>Nivel</th>
               <th>Tipo</th>
+              <th>Origen</th>
               <th style="text-align:right">Saldo</th>
             </tr>
           </thead>
@@ -5701,6 +5704,8 @@ GEN-3401    5"
               id: c.id, nombre: c.nombre, rif: c.rif || '', nivel: c.nivel || 'Publico',
               tipo: c.tipo_pago || 'contado', saldo_vd: parseFloat(c.saldo_vd) || 0,
               saldo_dist: parseFloat(c.saldo_dist) || 0, tel: c.telefono || '', empresa: c.empresa || 'ambas',
+              origen: c.origen || '', origen_detalle: c.origen_detalle || '',
+              direccion: c.direccion || '', notas: c.notas || '',
               contacto_principal: principal ? { nombre: principal.nombre, cargo: principal.cargo || '', tel: principal.telefono || '' } : { nombre: '—', cargo: '—', tel: '' },
               contactos_adicionales: adicionales.map(a => ({ nombre: a.nombre, cargo: a.cargo || '', tel: a.telefono || '' }))
             });
@@ -6403,7 +6408,8 @@ GEN-3401    5"
         nombre: cli.nombre, rif: cli.rif || '', nivel: cli.nivel || 'Publico',
         tipo_pago: cli.tipo || 'contado', saldo_vd: cli.saldo_vd || 0, saldo_dist: cli.saldo_dist || 0,
         telefono: cli.tel || '', empresa: cli.empresa || 'ambas',
-        direccion: cli.direccion || '', notas: cli.notas || ''
+        direccion: cli.direccion || '', notas: cli.notas || '',
+        origen: cli.origen || null, origen_detalle: cli.origen_detalle || ''
       };
       if (cli.id && typeof cli.id === 'number') {
         const { error } = await _sb.from('clientes').update(obj).eq('id', cli.id);
@@ -6840,6 +6846,31 @@ GEN-3401    5"
 
     const PRECIOS_TIER = { 'Publico': 1.0, 'T1': 0.95, 'T2': 0.90, 'T3': 0.80 };
     const TIER_NAMES = { 'Publico': 'Público', 'T1': 'Aliado T1 (–5%)', 'T2': 'Aliado T2 (–10%)', 'T3': 'Aliado T3 (–20%)' };
+
+    // v13.34: ATRIBUCION DE ORIGEN DEL CLIENTE
+    // Sin este campo no se puede saber que canal de captacion trae clientes y
+    // cual solo gasta tiempo. Se pide en el alta y se puede corregir al editar.
+    const ORIGEN_NAMES = {
+      'instagram': 'Instagram',
+      'facebook': 'Facebook',
+      'tiktok': 'TikTok',
+      'whatsapp': 'WhatsApp directo',
+      'referido': 'Referido',
+      'visita': 'Llegó al local',
+      'vendedor': 'Prospección del vendedor',
+      'feria': 'Feria / evento',
+      'otro': 'Otro',
+      'historico': 'Anterior al registro'
+    };
+    // Agrupacion para el tablero: digital vs boca a boca vs esfuerzo propio.
+    const ORIGEN_GRUPO = {
+      'instagram': 'Digital', 'facebook': 'Digital', 'tiktok': 'Digital', 'whatsapp': 'Digital',
+      'referido': 'Boca a boca', 'visita': 'Boca a boca',
+      'vendedor': 'Esfuerzo propio', 'feria': 'Esfuerzo propio',
+      'otro': 'Sin clasificar', 'historico': 'Sin clasificar'
+    };
+    const ORIGEN_COLOR = { 'Digital': '#5C6BC0', 'Boca a boca': '#2E9E5B', 'Esfuerzo propio': '#C79100', 'Sin clasificar': '#9E9E9E' };
+    function origenTxt(c) { return ORIGEN_NAMES[c && c.origen] || 'Sin registrar'; }
 
     // ═══════════════════════════════════════════════════════════════
     // FORMATEO
@@ -9188,6 +9219,7 @@ GEN-3401    5"
       const tbody = document.getElementById('clientes-body');
       // Filtrar clientes por empresa activa (ambas siempre se ven)
       const filtrados = CLIENTES.filter(c => c.empresa === estado.empresa || c.empresa === 'ambas');
+      renderPanelOrigen(filtrados);
       tbody.innerHTML = filtrados.map(c => {
         const cp = c.contacto_principal || { nombre: '—', cargo: '—' };
         const adicNum = (c.contactos_adicionales || []).length;
@@ -9200,9 +9232,50 @@ GEN-3401    5"
       <td><div style="font-weight:600;color:#222">${cp.nombre}</div><div style="font-size:11px;color:var(--dgray)">${cp.cargo}${adicNum > 0 ? ` <span style="color:var(--blue)">+${adicNum} más</span>` : ''}</div></td>
       <td><span class="cliente-info">${TIER_NAMES[c.nivel]}</span></td>
       <td><span class="cliente-info ${c.tipo}">${c.tipo === 'credito' ? 'Crédito' : 'Contado'}</span></td>
+      <td style="font-size:11.5px">${origenTxt(c)}</td>
       <td style="text-align:right">${saldo > 0 ? '<strong style="color:var(--red)">' + fmtUSD(saldo) + '</strong>' : '<span style="color:var(--green)">$ 0,00</span>'}</td>
     </tr>`;
       }).join('');
+    }
+
+    // v13.34: de donde vienen los clientes de la empresa activa.
+    // Cuenta clientes captados, no ventas: es la medida de captacion, no de facturacion.
+    function renderPanelOrigen(lista) {
+      const cont = document.getElementById('clientes-origen-panel');
+      if (!cont) return;
+      const nuevos = lista.filter(c => (c.origen || '') !== 'historico' && (c.origen || '') !== '');
+      const sinRegistrar = lista.filter(c => !c.origen).length;
+      if (nuevos.length === 0) {
+        cont.innerHTML = sinRegistrar > 0
+          ? '<div style="font-size:11.5px;color:var(--dgray);background:#F7F7F7;border-radius:6px;padding:7px 10px">' +
+          '<i class="ti ti-info-circle"></i> ' + sinRegistrar + ' cliente(s) sin origen registrado. Edítalos para completarlos.</div>'
+          : '';
+        return;
+      }
+      const porGrupo = {};
+      nuevos.forEach(c => {
+        const g = ORIGEN_GRUPO[c.origen] || 'Sin clasificar';
+        porGrupo[g] = (porGrupo[g] || 0) + 1;
+      });
+      const total = nuevos.length;
+      const orden = ['Digital', 'Boca a boca', 'Esfuerzo propio', 'Sin clasificar'].filter(g => porGrupo[g]);
+      let barra = '<div style="display:flex;height:9px;border-radius:5px;overflow:hidden;margin-bottom:7px">';
+      orden.forEach(g => {
+        barra += '<div title="' + g + ': ' + porGrupo[g] + '" style="width:' + (porGrupo[g] / total * 100).toFixed(1) +
+          '%;background:' + ORIGEN_COLOR[g] + '"></div>';
+      });
+      barra += '</div>';
+      let chips = '<div style="display:flex;flex-wrap:wrap;gap:10px;font-size:11.5px">';
+      orden.forEach(g => {
+        chips += '<span style="display:inline-flex;align-items:center;gap:5px">' +
+          '<span style="width:9px;height:9px;border-radius:2px;background:' + ORIGEN_COLOR[g] + '"></span>' +
+          '<strong>' + g + '</strong> ' + porGrupo[g] + ' (' + (porGrupo[g] / total * 100).toFixed(0) + '%)</span>';
+      });
+      if (sinRegistrar > 0) chips += '<span style="color:var(--dgray)">· ' + sinRegistrar + ' sin registrar</span>';
+      chips += '</div>';
+      cont.innerHTML = '<div class="card" style="margin:0;padding:10px 12px">' +
+        '<div style="font-size:10.5px;color:var(--dgray);text-transform:uppercase;letter-spacing:.04em;font-weight:600;margin-bottom:7px">' +
+        'Cómo nos consiguieron · ' + total + ' cliente(s) registrados</div>' + barra + chips + '</div>';
     }
 
     function renderVentasRecientes() {
@@ -9343,7 +9416,8 @@ GEN-3401    5"
     <div><strong>Teléfono:</strong> ${c.tel || '—'}</div>
     <div><strong>Tipo:</strong> ${c.tipo === 'credito' ? 'A crédito' : 'Contado'}</div>
     <div><strong>Nivel precio:</strong> ${TIER_NAMES[c.nivel]}</div>
-    <div><strong>Empresa(s):</strong> ${empresaTxt}</div>`;
+    <div><strong>Empresa(s):</strong> ${empresaTxt}</div>
+    <div><strong>Nos consiguió por:</strong> ${origenTxt(c)}${c.origen_detalle ? ' <span style="color:var(--dgray)">(' + c.origen_detalle + ')</span>' : ''}</div>`;
 
       // Saldos separados por empresa
       let saldoHTML = '';
@@ -15479,6 +15553,9 @@ _abonoCtx = { f: f, objetivo: _efectivoObjetivo, acordado: _cvAcordado };
       // Pre-seleccionar canal según la empresa activa
       const cnl = document.getElementById('ncr-canal'); if (cnl) cnl.value = estado.empresa || 'directa';
       const niv = document.getElementById('ncr-nivel'); if (niv) niv.value = 'Publico';
+      const org = document.getElementById('ncr-origen'); if (org) org.value = '';
+      const orgD = document.getElementById('ncr-origen-detalle'); if (orgD) orgD.value = '';
+      ncrToggleOrigen();
       ncrToggleTier();
       const n = document.getElementById('ncr-nombre'); if (n) n.focus();
     }
@@ -15522,6 +15599,9 @@ _abonoCtx = { f: f, objetivo: _efectivoObjetivo, acordado: _cvAcordado };
         }
       }
       const niv = document.getElementById('ncr-nivel'); if (niv) niv.value = cli.nivel || 'Publico';
+      const org = document.getElementById('ncr-origen'); if (org) org.value = cli.origen || '';
+      const orgD = document.getElementById('ncr-origen-detalle'); if (orgD) orgD.value = cli.origen_detalle || '';
+      ncrToggleOrigen();
       ncrToggleTier();
       const n = document.getElementById('ncr-nombre'); if (n) n.focus();
     }
@@ -15534,6 +15614,34 @@ _abonoCtx = { f: f, objetivo: _efectivoObjetivo, acordado: _cvAcordado };
       abrirEditarCliente(cli);
     }
     function cerrarNuevoClienteRapido() { document.getElementById('modal-nuevo-cliente-rapido').classList.remove('show'); }
+
+    // v13.34: el campo "detalle" solo aparece donde de verdad agrega informacion.
+    // En referido es el que mas vale: sin el no puedes premiar a quien te refiere.
+    const _ORIGEN_DETALLE = {
+      'referido': ['¿Quién lo refirió?', 'Nombre del cliente que lo mandó'],
+      'instagram': ['¿Qué publicación o reel?', 'Ej: reel de filtros New Holland'],
+      'facebook': ['¿Qué publicación?', 'Ej: post de bombas de inyección'],
+      'tiktok': ['¿Qué video?', 'Ej: video de rodamientos'],
+      'feria': ['¿Cuál feria o evento?', 'Ej: Expo Agrícola Acarigua 2026'],
+      'vendedor': ['¿Cuál vendedor?', 'Nombre del vendedor que lo captó'],
+      'otro': ['Explica', 'Ej: nos vio en la valla de la vía']
+    };
+    function ncrToggleOrigen() {
+      const v = document.getElementById('ncr-origen')?.value || '';
+      const wrap = document.getElementById('ncr-origen-detalle-wrap');
+      const lbl = document.getElementById('ncr-origen-detalle-lbl');
+      const inp = document.getElementById('ncr-origen-detalle');
+      if (!wrap) return;
+      const cfg = _ORIGEN_DETALLE[v];
+      if (cfg) {
+        wrap.style.display = 'block';
+        if (lbl) lbl.textContent = cfg[0];
+        if (inp) inp.placeholder = cfg[1];
+      } else {
+        wrap.style.display = 'none';
+        if (inp) inp.value = '';
+      }
+    }
 
     // Si canal es 'directa', el nivel se fuerza a Público y se deshabilita
     function ncrToggleTier() {
@@ -15562,7 +15670,16 @@ _abonoCtx = { f: f, objetivo: _efectivoObjetivo, acordado: _cvAcordado };
       const canal = document.getElementById('ncr-canal')?.value || 'directa';
       const nivel = canal === 'directa' ? 'Publico' : (document.getElementById('ncr-nivel')?.value || 'Publico');
       const notasTxt = (document.getElementById('ncr-notas')?.value || '').trim();
+      const origen = document.getElementById('ncr-origen')?.value || '';
+      const origenDetalle = (document.getElementById('ncr-origen-detalle')?.value || '').trim();
       if (!nombre) { notif('El nombre es obligatorio', 'error'); return; }
+      // v13.34: obligatorio. Si se deja opcional nadie lo llena y el campo
+      // no sirve para nada. Los clientes viejos tienen la opcion 'historico'.
+      if (!origen) {
+        notif('Indica cómo nos consiguió el cliente. Si no lo sabes, usa "Anterior al registro".', 'error');
+        const o = document.getElementById('ncr-origen'); if (o) { o.focus(); o.style.borderColor = 'var(--red)'; setTimeout(() => { o.style.borderColor = 'var(--border)'; }, 2500); }
+        return;
+      }
       // Construir notas con campos extra (correo va aquí para no requerir cambios en BD)
       let notasFinal = '';
       if (correo) notasFinal += 'Correo: ' + correo + '\n';
@@ -15585,6 +15702,7 @@ _abonoCtx = { f: f, objetivo: _efectivoObjetivo, acordado: _cvAcordado };
         c.rif = rif; c.tel = tel; c.direccion = direccion;
         c.correo = correo; c.notas = notasFinal;
         c.nivel = nivel; c.empresa = canalFinal;
+        c.origen = origen; c.origen_detalle = origenDetalle;
         c.contacto_principal = { nombre: contacto || '—', cargo: cargo || '—', tel };
         // OJO: saldo_vd y saldo_dist NO se tocan. Se calculan de las facturas;
         // pisarlos aquí borraría lo que el cliente debe.
@@ -15606,6 +15724,7 @@ _abonoCtx = { f: f, objetivo: _efectivoObjetivo, acordado: _cvAcordado };
         nombre: nombre.toUpperCase(), rif, nivel, tipo: 'contado',
         saldo_vd: 0, saldo_dist: 0, tel, empresa: canal,
         direccion, notas: notasFinal, correo,
+        origen, origen_detalle: origenDetalle,
         contacto_principal: { nombre: contacto || '—', cargo: cargo || '—', tel },
         contactos_adicionales: []
       };
@@ -15615,7 +15734,7 @@ _abonoCtx = { f: f, objetivo: _efectivoObjetivo, acordado: _cvAcordado };
       const sel = document.getElementById('cliente-select');
       if (sel) { for (let i = 0; i < sel.options.length; i++) { if (sel.options[i].text.includes(nombre.toUpperCase())) { sel.selectedIndex = i; seleccionarCliente(); break; } } }
       cerrarNuevoClienteRapido();
-      logBitacora('cliente', 'Creó cliente: ' + nombre.toUpperCase() + ' (RIF: ' + (rif || '—') + ', Canal: ' + canal + ', Nivel: ' + nivel + ')', false);
+      logBitacora('cliente', 'Creó cliente: ' + nombre.toUpperCase() + ' (RIF: ' + (rif || '—') + ', Canal: ' + canal + ', Nivel: ' + nivel + ', Origen: ' + (ORIGEN_NAMES[origen] || origen) + ')', false);
       _sbLogBitacora(estado.usuario, estado.empresa, 'cliente', 'Creó cliente: ' + nombre.toUpperCase(), false);
       notif('✓ Cliente creado: ' + nombre.toUpperCase(), 'success');
     }
@@ -15735,6 +15854,39 @@ _abonoCtx = { f: f, objetivo: _efectivoObjetivo, acordado: _cvAcordado };
               <option value="T2">T2 — Aliado (−10%)</option>
               <option value="T3">T3 — Aliado (−20%)</option>
             </select>
+          </div>
+        </div>
+        <div style="padding:10px;background:#F3F6FA;border:1px solid var(--border);border-radius:6px">
+          <label style="font-size:12px;font-weight:600;display:block;margin-bottom:3px">¿Cómo nos consiguió? *</label>
+          <select id="ncr-origen" onchange="ncrToggleOrigen()"
+            style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;font-family:inherit">
+            <option value="">— Selecciona —</option>
+            <optgroup label="Digital">
+              <option value="instagram">Instagram</option>
+              <option value="facebook">Facebook</option>
+              <option value="tiktok">TikTok</option>
+              <option value="whatsapp">WhatsApp directo (número publicado)</option>
+            </optgroup>
+            <optgroup label="Boca a boca">
+              <option value="referido">Referido por otro cliente</option>
+              <option value="visita">Llegó al local por su cuenta</option>
+            </optgroup>
+            <optgroup label="Esfuerzo propio">
+              <option value="vendedor">Prospección del vendedor</option>
+              <option value="feria">Feria / evento agrícola</option>
+            </optgroup>
+            <optgroup label="Otros">
+              <option value="otro">Otro</option>
+              <option value="historico">Anterior al registro (cliente viejo)</option>
+            </optgroup>
+          </select>
+          <div id="ncr-origen-detalle-wrap" style="display:none;margin-top:7px">
+            <label id="ncr-origen-detalle-lbl" style="font-size:11.5px;font-weight:600;display:block;margin-bottom:3px;color:var(--dgray)">Detalle</label>
+            <input type="text" id="ncr-origen-detalle" placeholder=""
+              style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;font-family:inherit">
+          </div>
+          <div style="font-size:10.5px;color:var(--dgray);margin-top:6px;line-height:1.4">
+            Esto es lo único que te va a decir, dentro de seis meses, si el contenido sirvió o si todo vino por referidos.
           </div>
         </div>
         <div>
