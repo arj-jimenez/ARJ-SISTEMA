@@ -4558,9 +4558,32 @@ GEN-3401    5"
           </div>
         </div>
 
-        <!-- VENTAS POR ORIGEN (v13.28) -->
+        <!-- VENTAS POR ORIGEN (v13.28) · selector de periodo (v13.35) -->
         <div class="chart-card" style="margin-bottom:16px">
-          <h3><i class="ti ti-world" style="color:var(--blue)"></i> Importado vs Local — Este mes</h3>
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:4px">
+            <h3 style="margin:0"><i class="ti ti-world" style="color:var(--blue)"></i> Importado vs Local
+              <span id="rep-origen-lbl" style="font-weight:500;color:var(--dgray)">— Este mes</span></h3>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+              <select id="rep-origen-rango" onchange="repOrigenCambioRango()"
+                style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:inherit">
+                <option value="mes">Este mes</option>
+                <option value="mes_ant">Mes pasado</option>
+                <option value="3m">Últimos 3 meses</option>
+                <option value="12m">Últimos 12 meses</option>
+                <option value="anio">Este año</option>
+                <option value="todo">Todo el histórico</option>
+                <option value="custom">Personalizado…</option>
+              </select>
+              <span id="rep-origen-custom" style="display:none;gap:6px;align-items:center">
+                <input type="date" id="rep-origen-desde"
+                  style="padding:5px 7px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:inherit">
+                <span style="font-size:11.5px;color:var(--dgray)">a</span>
+                <input type="date" id="rep-origen-hasta"
+                  style="padding:5px 7px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:inherit">
+                <button class="btn btn-primary btn-sm" onclick="cargarOrigenPeriodo()">Aplicar</button>
+              </span>
+            </div>
+          </div>
           <div id="rep-origen-content"></div>
         </div>
 
@@ -8255,7 +8278,10 @@ GEN-3401    5"
       if (page === 'alertas') renderAlertas();
       if (page === 'exportar') renderVentasPendientes();
       if (page === 'config') { renderListasPrecios(); renderUsuariosConfig(); renderInfoBackup(); _respUltimo(); }
-      if (page === 'dashboard') { renderVentasRecientes(); renderMetas(); actualizarKpiStockCritico(); cambiarSubReporte('resumen'); }
+      if (page === 'dashboard') {
+        // v13.35: si el usuario dejo el selector en otro rango, se respeta.
+        const _selOr = document.getElementById('rep-origen-rango');
+        if (_selOr && _selOr.value !== 'mes' && _selOr.value !== 'custom') setTimeout(cargarOrigenPeriodo, 300); renderVentasRecientes(); renderMetas(); actualizarKpiStockCritico(); cambiarSubReporte('resumen'); }
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -14117,11 +14143,16 @@ GEN-3401    5"
     // avisan: un numero estimado que se presenta como medido es peor que
     // ningun numero.
     // ═══════════════════════════════════════════════════════════════
-    function renderOrigenMes(its) {
+    function renderOrigenMes(its, etiqueta) {
       const cont = document.getElementById('rep-origen-content');
       if (!cont) return;
+      // v13.35: la etiqueta viene del selector. Sin ella se asume el mes en
+      // curso, que es como se llamaba esta funcion antes.
+      const per = etiqueta || 'este mes';
+      const lbl = document.getElementById('rep-origen-lbl');
+      if (lbl) lbl.textContent = '— ' + per.charAt(0).toUpperCase() + per.slice(1);
       if (its == null) { cont.innerHTML = '<div style="padding:14px;text-align:center;color:var(--dgray)">Sin conexión a la base.</div>'; return; }
-      if (its.length === 0) { cont.innerHTML = '<div style="padding:14px;text-align:center;color:var(--dgray)">Sin ventas este mes.</div>'; return; }
+      if (its.length === 0) { cont.innerHTML = '<div style="padding:14px;text-align:center;color:var(--dgray)">Sin ventas en ' + per + '.</div>'; return; }
 
       const Z = () => ({ venta: 0, costo: 0, uds: 0, lineas: 0 });
       const g = { importado: Z(), local: Z() };
@@ -14180,6 +14211,125 @@ GEN-3401    5"
           + av.join('<br>⚠ ') + '</div>';
       }
       cont.innerHTML = h;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // SELECTOR DE PERIODO — IMPORTADO vs LOCAL (v13.35)
+    //
+    // NO reutiliza TODAS_FACTURAS: ese arreglo esta limitado a las ultimas
+    // 500 facturas, asi que para rangos largos daria un numero INCOMPLETO sin
+    // avisar. Se consulta Supabase directo, paginando.
+    //
+    // Sobre la frontera de fechas: se filtra con 'YYYY-MM-DD'. Si `fecha` es
+    // timestamptz, el corte cae a medianoche UTC = 8:00 pm de Venezuela. Una
+    // factura emitida despues de las 8 pm del ultimo dia del rango caeria en
+    // el periodo siguiente. Con el horario del negocio esto no ocurre, pero
+    // queda dicho por si algun dia se factura de noche.
+    // ═══════════════════════════════════════════════════════════════
+    function _fISO(d) {
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')
+        + '-' + String(d.getDate()).padStart(2, '0');
+    }
+
+    // Devuelve { desde, hastaExcl, etiqueta } — hastaExcl es el dia SIGUIENTE
+    // al ultimo del rango, para poder usar `lt` y no perder el ultimo dia.
+    function _rangoOrigen() {
+      const sel = document.getElementById('rep-origen-rango')?.value || 'mes';
+      const h = new Date();
+      const y = h.getFullYear(), m = h.getMonth();
+      const manana = new Date(y, m, h.getDate() + 1);
+      if (sel === 'mes') return { desde: _fISO(new Date(y, m, 1)), hastaExcl: _fISO(manana), etiqueta: 'este mes' };
+      if (sel === 'mes_ant') return { desde: _fISO(new Date(y, m - 1, 1)), hastaExcl: _fISO(new Date(y, m, 1)), etiqueta: new Date(y, m - 1, 1).toLocaleDateString('es-VE', { month: 'long', year: 'numeric' }) };
+      if (sel === '3m') return { desde: _fISO(new Date(y, m - 2, 1)), hastaExcl: _fISO(manana), etiqueta: 'últimos 3 meses' };
+      if (sel === '12m') return { desde: _fISO(new Date(y, m - 11, 1)), hastaExcl: _fISO(manana), etiqueta: 'últimos 12 meses' };
+      if (sel === 'anio') return { desde: _fISO(new Date(y, 0, 1)), hastaExcl: _fISO(manana), etiqueta: 'año ' + y };
+      if (sel === 'todo') return { desde: '2000-01-01', hastaExcl: _fISO(manana), etiqueta: 'todo el histórico' };
+      // Personalizado
+      const d = document.getElementById('rep-origen-desde')?.value || '';
+      const ha = document.getElementById('rep-origen-hasta')?.value || '';
+      if (!d || !ha) return { error: 'Escoge las dos fechas.' };
+      if (d > ha) return { error: 'La fecha inicial es posterior a la final.' };
+      const p = ha.split('-');
+      const sig = new Date(parseInt(p[0]), parseInt(p[1]) - 1, parseInt(p[2]) + 1);
+      return { desde: d, hastaExcl: _fISO(sig), etiqueta: d + ' a ' + ha };
+    }
+
+    function repOrigenCambioRango() {
+      const sel = document.getElementById('rep-origen-rango')?.value || 'mes';
+      const box = document.getElementById('rep-origen-custom');
+      if (box) box.style.display = (sel === 'custom') ? 'inline-flex' : 'none';
+      if (sel === 'custom') {
+        // Precargar con el mes en curso para que no arranque vacio
+        const h = new Date();
+        const di = document.getElementById('rep-origen-desde');
+        const hi = document.getElementById('rep-origen-hasta');
+        if (di && !di.value) di.value = _fISO(new Date(h.getFullYear(), h.getMonth(), 1));
+        if (hi && !hi.value) hi.value = _fISO(h);
+        return;   // espera al boton Aplicar
+      }
+      cargarOrigenPeriodo();
+    }
+
+    async function cargarOrigenPeriodo() {
+      const cont = document.getElementById('rep-origen-content');
+      const r = _rangoOrigen();
+      if (r.error) { notif(r.error, 'error'); return; }
+      if (!_sb || !_supabaseConectado) { renderOrigenMes(null, r.etiqueta); return; }
+      if (cont) cont.innerHTML = '<div style="padding:14px;text-align:center;color:var(--dgray)">'
+        + '<i class="ti ti-loader"></i> Leyendo ' + r.etiqueta + '…</div>';
+
+      // 1) IDs de facturas del rango, paginando de 1000 en 1000.
+      let ids = [], desde = 0;
+      for (let v = 0; v < 30; v++) {
+        const q = await _sb.from('facturas').select('id')
+          .eq('empresa', estado.empresa).neq('estado', 'anulada')
+          .gte('fecha', r.desde).lt('fecha', r.hastaExcl)
+          .range(desde, desde + 999);
+        if (q.error) {
+          if (cont) cont.innerHTML = '<div style="padding:14px;text-align:center;color:var(--red)">No se pudieron leer las facturas: '
+            + q.error.message + '</div>';
+          return;
+        }
+        if (!q.data || q.data.length === 0) break;
+        ids = ids.concat(q.data.map(x => x.id));
+        if (q.data.length < 1000) break;
+        desde += 1000;
+      }
+      if (ids.length === 0) { renderOrigenMes([], r.etiqueta); return; }
+
+      // 2) Renglones. Se parte en lotes: un `in` con cientos de ids arma una
+      //    URL demasiado larga y el servidor la rechaza.
+      const LOTE = 120, todos = [];
+      let sinColOrigen = false;
+      for (let i = 0; i < ids.length; i += LOTE) {
+        const trozo = ids.slice(i, i + LOTE);
+        let off = 0;
+        for (let v = 0; v < 60; v++) {
+          const cols = sinColOrigen
+            ? 'cantidad,fob_unitario,factor_landed,total_linea'
+            : 'cantidad,fob_unitario,factor_landed,total_linea,origen';
+          let q = await _sb.from('factura_items').select(cols)
+            .in('factura_id', trozo).range(off, off + 999);
+          // Igual que en cargarUtilidadMes: si la columna no existe, se
+          // reintenta sin ella y origenDe() deduce por el factor congelado.
+          if (q.error && /origen/i.test(q.error.message || '')) {
+            sinColOrigen = true;
+            q = await _sb.from('factura_items')
+              .select('cantidad,fob_unitario,factor_landed,total_linea')
+              .in('factura_id', trozo).range(off, off + 999);
+          }
+          if (q.error) {
+            if (cont) cont.innerHTML = '<div style="padding:14px;text-align:center;color:var(--red)">No se pudieron leer los renglones: '
+              + q.error.message + '</div>';
+            return;
+          }
+          if (!q.data || q.data.length === 0) break;
+          q.data.forEach(x => todos.push(x));
+          if (q.data.length < 1000) break;
+          off += 1000;
+        }
+      }
+      renderOrigenMes(todos, r.etiqueta + ' · ' + ids.length + ' factura(s)');
     }
 
     function renderTopProductos(items) {
