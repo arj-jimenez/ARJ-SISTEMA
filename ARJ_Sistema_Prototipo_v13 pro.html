@@ -5768,6 +5768,10 @@ GEN-3401    5"
               cliente_tel_snap: f.cliente_tel_snap || null,
               cliente_dir_snap: f.cliente_dir_snap || null,
               descuento_manual: parseFloat(f.descuento_manual) || 0,
+              // v13.36: faltaba cargarlo. Es el objetivo de cobro en $verde
+              // congelado al emitir; sin el, el historial no sabe cuanto
+              // efectivo se acordo recibir y solo ve el equivalente $BCV.
+              cobrar_verde: f.cobrar_verde != null ? parseFloat(f.cobrar_verde) : null,
               motivo_descuento: f.motivo_descuento || '',
               pidio_fiscal: f.pidio_fiscal
             };
@@ -13272,17 +13276,50 @@ GEN-3401    5"
       const desde = new Date(hoy.getTime() - 7 * 86400000);
       const facts = (TODAS_FACTURAS || []).filter(f => f.fecha_raw && new Date(f.fecha_raw) >= desde);
       if (!facts.length) { notif('No hay facturas en los últimos 7 días', 'error'); return; }
-      const filas = [['RESUMEN SEMANAL ARJ — ' + desde.toLocaleDateString('es-VE') + ' al ' + hoy.toLocaleDateString('es-VE')], [],
-      ['Factura', 'Fecha', 'Empresa', 'Cliente', 'Vendedor', 'Tipo', 'Estado', 'Total USD', 'Abonado USD', 'Saldo USD']];
-      let tot = 0, totSaldo = 0;
+      // ═══════════════════════════════════════════════════════════
+      // v13.36 — UNIDADES SEPARADAS.
+      // `subtotal_usd` es el BRUTO en $BCV, antes del descuento. El descuento
+      // (manual + divisas + redondeo) vive en `descuento_manual`. Y lo que de
+      // verdad entra a la caja cuando se paga en efectivo es `cobrar_verde`,
+      // que son $verdes y NO se suman con $BCV.
+      // Antes este export mostraba solo el bruto en $BCV bajo el rotulo
+      // ambiguo "Total USD": el descuento no aparecia y el verde tampoco.
+      // ═══════════════════════════════════════════════════════════
+      const filas = [['RESUMEN SEMANAL ARJ — ' + desde.toLocaleDateString('es-VE') + ' al ' + hoy.toLocaleDateString('es-VE')],
+      ['Los montos $BCV y los $verdes son unidades distintas. NO se suman entre si.'], [],
+      ['Factura', 'Fecha', 'Empresa', 'Cliente', 'Vendedor', 'Tipo', 'Estado',
+        'Bruto $BCV', 'Descuento $BCV', 'Neto $BCV', 'Cobrado en $verde',
+        'Abonado $BCV', 'Saldo $BCV', 'Motivo del descuento']];
+      let totBruto = 0, totDto = 0, totNeto = 0, totVerde = 0, totSaldo = 0, totAbon = 0, nVerde = 0;
       facts.forEach(f => {
-        if (f.estado !== 'anulada') { tot += (f.total || 0); totSaldo += (f.saldo_pendiente || 0); }
+        const bruto = f.total || 0;                       // subtotal_usd, $BCV
+        const dto = f.descuento_manual || 0;              // $BCV
+        const neto = Math.round((bruto - dto) * 100) / 100;
+        const saldo = f.saldo_pendiente || 0;             // $BCV
+        // Abonado real = lo saldado del NETO. El calculo viejo partia del
+        // bruto, asi que contaba el descuento como si fuera un pago.
+        const abon = Math.round((neto - saldo) * 100) / 100;
+        const cv = (f.cobrar_verde != null && f.cobrar_verde > 0) ? f.cobrar_verde : null;
+        if (f.estado !== 'anulada') {
+          totBruto += bruto; totDto += dto; totNeto += neto;
+          totSaldo += saldo; totAbon += abon;
+          if (cv != null) { totVerde += cv; nVerde++; }
+        }
         filas.push([f.num, f.fecha, f.empresa === 'directa' ? 'Venta Directa' : 'Distribuidora',
           f.cliente_nombre_snap || f.cliente, f.vendedor || '', f.tipo_pago || '', (f.estado || '').toUpperCase(),
-          (f.total || 0).toFixed(2), (f.abonado || 0).toFixed(2), (f.saldo_pendiente || 0).toFixed(2)]);
+          bruto.toFixed(2), dto.toFixed(2), neto.toFixed(2),
+          cv != null ? cv.toFixed(2) : '',
+          abon.toFixed(2), saldo.toFixed(2), f.motivo_descuento || '']);
       });
-      filas.push([], ['TOTAL FACTURADO (sin anuladas)', '', '', '', '', '', '', tot.toFixed(2)]);
-      filas.push(['TOTAL POR COBRAR', '', '', '', '', '', '', totSaldo.toFixed(2)]);
+      filas.push([]);
+      filas.push(['TOTAL BRUTO $BCV (sin anuladas)', '', '', '', '', '', '', totBruto.toFixed(2)]);
+      filas.push(['TOTAL DESCUENTOS $BCV', '', '', '', '', '', '', totDto.toFixed(2)]);
+      filas.push(['TOTAL NETO FACTURADO $BCV', '', '', '', '', '', '', totNeto.toFixed(2)]);
+      filas.push(['TOTAL COBRADO $BCV', '', '', '', '', '', '', totAbon.toFixed(2)]);
+      filas.push(['TOTAL POR COBRAR $BCV', '', '', '', '', '', '', totSaldo.toFixed(2)]);
+      filas.push([]);
+      filas.push(['TOTAL ACORDADO EN $VERDE (' + nVerde + ' factura(s))', '', '', '', '', '', '', '', '', '', totVerde.toFixed(2)]);
+      filas.push(['Esta cifra NO se suma con las de arriba: son dolares distintos.']);
       _descargarCSV('ARJ_semana_' + _hoyArchivo() + '.csv', filas);
       logBitacora('inventario', 'Descargó resumen semanal (' + facts.length + ' facturas)', false);
       notif(facts.length + ' facturas de la semana descargadas', 'success');
