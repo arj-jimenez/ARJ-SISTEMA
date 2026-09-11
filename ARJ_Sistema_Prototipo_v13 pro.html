@@ -4585,6 +4585,7 @@ GEN-3401    5"
             </div>
           </div>
           <div id="rep-origen-content"></div>
+          <div id="rep-origen-detalle" style="display:none;margin-top:12px"></div>
         </div>
 
         <!-- METAS DE VENTA -->
@@ -14191,7 +14192,7 @@ GEN-3401    5"
       if (its == null) { cont.innerHTML = '<div style="padding:14px;text-align:center;color:var(--dgray)">Sin conexión a la base.</div>'; return; }
       if (its.length === 0) { cont.innerHTML = '<div style="padding:14px;text-align:center;color:var(--dgray)">Sin ventas en ' + per + '.</div>'; return; }
 
-      const Z = () => ({ venta: 0, costo: 0, uds: 0, lineas: 0 });
+      const Z = () => ({ venta: 0, costo: 0, uds: 0, lineas: 0, verde: 0 });
       const g = { importado: Z(), local: Z() };
       let deducidos = 0, sinCosto = 0;
       its.forEach(i => {
@@ -14203,6 +14204,9 @@ GEN-3401    5"
         if (o !== 'local' && o !== 'importado') deducidos++;
         if (fob <= 0) sinCosto++;
         const k = origenDe(i);
+        // v13.37: equivalente en efectivo con la brecha congelada de la factura
+        const fv = (typeof _factorVerde === 'function') ? _factorVerde(i.factura_id) : null;
+        if (fv != null) g[k].verde += (parseFloat(i.total_linea) || 0) * fv;
         g[k].venta += parseFloat(i.total_linea) || 0;
         g[k].costo += fob * f * cant;
         g[k].uds += cant;
@@ -14226,7 +14230,9 @@ GEN-3401    5"
           + '<div style="font-size:12px;line-height:1.6">Costo <strong>' + fmtUSD(c.costo) + '</strong><br>'
           + 'Utilidad <strong style="color:' + (c.util >= 0 ? '#1E7B34' : '#B00020') + '">' + fmtUSD(c.util)
           + '</strong> &middot; margen <strong>' + c.mg.toFixed(1) + '%</strong><br>'
-          + '<span style="color:var(--dgray)">Aporta ' + pc(c.util, tot.util) + ' de la utilidad</span></div></div>';
+          + '<span style="color:var(--dgray)">Aporta ' + pc(c.util, tot.util) + ' de la utilidad</span>'
+          + (c.verde > 0 ? '<br><span style="color:#1E7B34;font-weight:600">≈ ' + fmtUSD(c.verde)
+            + ' en efectivo verde</span>' : '') + '</div></div>';
       };
 
       let h = '<div style="display:flex;flex-wrap:wrap;gap:10px">'
@@ -14247,6 +14253,11 @@ GEN-3401    5"
         h += '<div style="margin-top:8px;padding:8px 10px;border-radius:6px;background:#FFF4E5;border-left:3px solid #BF8F00;font-size:11.5px;line-height:1.5">⚠ '
           + av.join('<br>⚠ ') + '</div>';
       }
+      h += '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">'
+        + '<button class="btn btn-sm" style="background:var(--navy);color:#FFF" onclick="toggleDetalleOrigen()">'
+        + '<i class="ti ti-list-search"></i> Ver qué productos son</button>'
+        + '<button class="btn btn-sm btn-secondary" onclick="descargarDetalleOrigen()">'
+        + '<i class="ti ti-download"></i> Descargar detalle CSV</button></div>';
       cont.innerHTML = h;
     }
 
@@ -14263,6 +14274,157 @@ GEN-3401    5"
     // el periodo siguiente. Con el horario del negocio esto no ocurre, pero
     // queda dicho por si algun dia se factura de noche.
     // ═══════════════════════════════════════════════════════════════
+    // ═══════════════════════════════════════════════════════════════
+    // $BCV → $VERDE (v13.37)
+    //
+    // Las dos monedas del sistema. El precio se factura en $BCV; el efectivo
+    // que entra a la caja son $verdes. La conversion usa la brecha CONGELADA
+    // de cada factura (tasa_bcv / tasa_par), no la de hoy: una venta de hace
+    // tres semanas se cobro con la brecha de ese dia.
+    //
+    // ESTO ES UN EQUIVALENTE, NO UNA COBRANZA. Dice cuanto efectivo saldaria
+    // esa venta si se cobrara en divisas. Si el cliente paga en bolivares,
+    // entra el monto $BCV en Bs y esta cifra no aplica. Por eso se rotula
+    // siempre como "si se cobra en efectivo".
+    // ═══════════════════════════════════════════════════════════════
+    const _FMAP = {};              // factura_id → { numero, fecha, tasas… }
+    let _ORIGEN_DATA = null;       // ultimo resultado cargado
+
+    function _factorVerde(fid) {
+      const f = _FMAP[fid];
+      if (!f) return null;
+      const tp = parseFloat(f.tasa_par), tb = parseFloat(f.tasa_bcv);
+      if (!isFinite(tp) || !isFinite(tb) || tp <= 0 || tb <= 0 || tb > tp) return null;
+      return tb / tp;
+    }
+
+    function toggleDetalleOrigen() {
+      const d = document.getElementById('rep-origen-detalle');
+      if (!d) return;
+      const abrir = d.style.display !== 'block';
+      d.style.display = abrir ? 'block' : 'none';
+      if (abrir) renderDetalleOrigen();
+    }
+
+    // Agrupa por PRODUCTO, no por renglon: lo que el jefe pregunta es "cuales
+    // productos", no "cuales lineas de factura".
+    function _agruparProductos(its) {
+      const acc = {};
+      its.forEach(i => {
+        const k = (i.cod_alt || '—') + '|' + (i.descripcion || '');
+        if (!acc[k]) acc[k] = {
+          cod: i.cod_alt || '—', desc: i.descripcion || '', origen: origenDe(i),
+          uds: 0, venta: 0, verde: 0, costo: 0, sinTasa: 0
+        };
+        const a = acc[k];
+        const cant = parseFloat(i.cantidad) || 0;
+        const vta = parseFloat(i.total_linea) || 0;
+        const fob = parseFloat(i.fob_unitario) || 0;
+        const fac = parseFloat(i.factor_landed);
+        a.uds += cant;
+        a.venta += vta;
+        a.costo += fob * ((isFinite(fac) && fac > 0) ? fac : FACTOR_LANDED_FALLBACK) * cant;
+        const fv = _factorVerde(i.factura_id);
+        if (fv == null) a.sinTasa++; else a.verde += vta * fv;
+      });
+      return Object.values(acc).sort((x, y) => y.venta - x.venta);
+    }
+
+    function renderDetalleOrigen() {
+      const cont = document.getElementById('rep-origen-detalle');
+      if (!cont) return;
+      if (!_ORIGEN_DATA || !_ORIGEN_DATA.its || _ORIGEN_DATA.its.length === 0) {
+        cont.innerHTML = '<div style="padding:14px;text-align:center;color:var(--dgray);font-size:12.5px">'
+          + 'Escoge un período con ventas y vuelve a abrir el detalle.</div>';
+        return;
+      }
+      const prods = _agruparProductos(_ORIGEN_DATA.its);
+      const tabla = (titulo, lista, col) => {
+        if (!lista.length) return '';
+        const tV = lista.reduce((a, p) => a + p.venta, 0);
+        const tW = lista.reduce((a, p) => a + p.verde, 0);
+        let h = '<div style="margin-bottom:14px"><div style="font-size:12px;font-weight:700;color:var(--navy);'
+          + 'background:' + col + ';padding:6px 9px;border-radius:6px 6px 0 0">' + titulo
+          + ' — ' + lista.length + ' producto(s) · ' + fmtUSD(tV) + ' $BCV · ≈ ' + fmtUSD(tW) + ' verde</div>'
+          + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:11.5px">'
+          + '<thead><tr style="background:#F7F7F7;color:var(--dgray)">'
+          + '<th style="text-align:left;padding:5px 7px">Código</th>'
+          + '<th style="text-align:left;padding:5px 7px">Descripción</th>'
+          + '<th style="text-align:right;padding:5px 7px">Uds</th>'
+          + '<th style="text-align:right;padding:5px 7px">Venta $BCV</th>'
+          + '<th style="text-align:right;padding:5px 7px">≈ $verde</th>'
+          + '<th style="text-align:right;padding:5px 7px">Costo</th>'
+          + '<th style="text-align:right;padding:5px 7px">Utilidad</th>'
+          + '<th style="text-align:right;padding:5px 7px">Margen</th></tr></thead><tbody>';
+        lista.slice(0, 60).forEach(p => {
+          const u = p.venta - p.costo;
+          const m = p.venta > 0 ? (u / p.venta * 100) : 0;
+          h += '<tr style="border-bottom:1px solid var(--border)">'
+            + '<td style="padding:4px 7px;font-family:monospace">' + p.cod + '</td>'
+            + '<td style="padding:4px 7px">' + p.desc + '</td>'
+            + '<td style="padding:4px 7px;text-align:right">' + p.uds.toLocaleString('es-VE') + '</td>'
+            + '<td style="padding:4px 7px;text-align:right;font-weight:600">' + fmtUSD(p.venta) + '</td>'
+            + '<td style="padding:4px 7px;text-align:right;color:#1E7B34">' + (p.sinTasa ? '—' : fmtUSD(p.verde)) + '</td>'
+            + '<td style="padding:4px 7px;text-align:right;color:var(--dgray)">' + fmtUSD(p.costo) + '</td>'
+            + '<td style="padding:4px 7px;text-align:right;color:' + (u >= 0 ? '#1E7B34' : '#B00020') + '">' + fmtUSD(u) + '</td>'
+            + '<td style="padding:4px 7px;text-align:right">' + m.toFixed(1) + '%</td></tr>';
+        });
+        h += '</tbody></table></div>';
+        if (lista.length > 60) h += '<div style="font-size:11px;color:var(--dgray);padding:5px 7px">'
+          + 'Mostrando los 60 de mayor venta. El CSV los trae todos.</div>';
+        return h + '</div>';
+      };
+      cont.innerHTML =
+        tabla('<i class="ti ti-ship"></i> IMPORTADO', prods.filter(p => p.origen === 'importado'), '#EAF0F8')
+        + tabla('<i class="ti ti-building-store"></i> COMPRA LOCAL', prods.filter(p => p.origen === 'local'), '#FBF3E0')
+        + '<div style="font-size:11px;color:var(--dgray);line-height:1.5;padding:6px 2px">'
+        + 'La columna <strong>≈ $verde</strong> es un equivalente: cuánto efectivo en divisas saldaría esa venta '
+        + 'con la brecha congelada de cada factura. Si el cliente pagó en bolívares, no aplica.</div>';
+    }
+
+    // CSV a nivel de RENGLON: una fila por producto por factura, para poder
+    // rastrear cualquier cifra hasta su documento de origen.
+    function descargarDetalleOrigen() {
+      if (!_ORIGEN_DATA || !_ORIGEN_DATA.its || !_ORIGEN_DATA.its.length) {
+        notif('No hay datos cargados para ese período', 'error'); return;
+      }
+      const filas = [['DETALLE DE VENTAS POR ORIGEN — ' + _ORIGEN_DATA.etiqueta],
+      ['Empresa: ' + (estado.empresa === 'directa' ? 'Venta Directa' : 'Distribuidora')
+        + ' · ' + _ORIGEN_DATA.nFacts + ' factura(s)'],
+      ['Los $BCV y los $verdes son unidades distintas. NO se suman entre si.'], [],
+      ['Factura', 'Fecha', 'Cliente', 'Código', 'Descripción', 'Origen', 'Cantidad',
+        'Venta $BCV', '≈ $verde', 'Costo $BCV', 'Utilidad $BCV', 'Margen %', 'Cobro verde acordado']];
+      let tV = 0, tW = 0, tC = 0, sinTasa = 0;
+      _ORIGEN_DATA.its.forEach(i => {
+        const f = _FMAP[i.factura_id] || {};
+        const cant = parseFloat(i.cantidad) || 0;
+        const vta = parseFloat(i.total_linea) || 0;
+        const fob = parseFloat(i.fob_unitario) || 0;
+        const fl = parseFloat(i.factor_landed);
+        const costo = fob * ((isFinite(fl) && fl > 0) ? fl : FACTOR_LANDED_FALLBACK) * cant;
+        const util = vta - costo;
+        const fv = _factorVerde(i.factura_id);
+        if (fv == null) sinTasa++;
+        const verde = fv == null ? null : vta * fv;
+        tV += vta; tC += costo; if (verde != null) tW += verde;
+        filas.push([
+          f.numero || '', f.fecha ? new Date(f.fecha).toLocaleDateString('es-VE') : '',
+          f.cliente_nombre || '', i.cod_alt || '', i.descripcion || '', origenDe(i),
+          cant.toFixed(2), vta.toFixed(2), verde == null ? '' : verde.toFixed(2),
+          costo.toFixed(2), util.toFixed(2), vta > 0 ? (util / vta * 100).toFixed(1) : '',
+          (f.cobrar_verde != null && f.cobrar_verde > 0) ? parseFloat(f.cobrar_verde).toFixed(2) : ''
+        ]);
+      });
+      filas.push([]);
+      filas.push(['TOTAL VENTA $BCV', '', '', '', '', '', '', tV.toFixed(2)]);
+      filas.push(['TOTAL COSTO $BCV', '', '', '', '', '', '', tC.toFixed(2)]);
+      filas.push(['TOTAL UTILIDAD $BCV', '', '', '', '', '', '', (tV - tC).toFixed(2)]);
+      filas.push(['EQUIVALENTE EN $VERDE (si todo se cobra en efectivo)', '', '', '', '', '', '', '', tW.toFixed(2)]);
+      if (sinTasa > 0) filas.push([sinTasa + ' renglon(es) sin tasas congeladas: no se pudo convertir a verde']);
+      _descargarCSV('ARJ_detalle_origen_' + _hoyArchivo() + '.csv', filas);
+      notif(_ORIGEN_DATA.its.length + ' renglones descargados', 'success');
+    }
+
     function _fISO(d) {
       return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')
         + '-' + String(d.getDate()).padStart(2, '0');
@@ -14316,9 +14478,14 @@ GEN-3401    5"
         + '<i class="ti ti-loader"></i> Leyendo ' + r.etiqueta + '…</div>';
 
       // 1) IDs de facturas del rango, paginando de 1000 en 1000.
+      for (const k in _FMAP) delete _FMAP[k];
       let ids = [], desde = 0;
       for (let v = 0; v < 30; v++) {
-        const q = await _sb.from('facturas').select('id')
+        // v13.37: ya no basta el id. Para convertir a $verde hace falta la
+        // brecha CONGELADA de cada factura (tasa_par / tasa_bcv), y para el
+        // detalle hacen falta numero, fecha y cliente.
+        const q = await _sb.from('facturas')
+          .select('id,numero,fecha,cliente_nombre,tasa_par,tasa_bcv,cobrar_verde')
           .eq('empresa', estado.empresa).neq('estado', 'anulada')
           .gte('fecha', r.desde).lt('fecha', r.hastaExcl)
           .range(desde, desde + 999);
@@ -14328,11 +14495,11 @@ GEN-3401    5"
           return;
         }
         if (!q.data || q.data.length === 0) break;
-        ids = ids.concat(q.data.map(x => x.id));
+        q.data.forEach(x => { ids.push(x.id); _FMAP[x.id] = x; });
         if (q.data.length < 1000) break;
         desde += 1000;
       }
-      if (ids.length === 0) { renderOrigenMes([], r.etiqueta); return; }
+      if (ids.length === 0) { _ORIGEN_DATA = null; renderOrigenMes([], r.etiqueta); return; }
 
       // 2) Renglones. Se parte en lotes: un `in` con cientos de ids arma una
       //    URL demasiado larga y el servidor la rechaza.
@@ -14343,8 +14510,8 @@ GEN-3401    5"
         let off = 0;
         for (let v = 0; v < 60; v++) {
           const cols = sinColOrigen
-            ? 'cantidad,fob_unitario,factor_landed,total_linea'
-            : 'cantidad,fob_unitario,factor_landed,total_linea,origen';
+            ? 'factura_id,cod_alt,descripcion,cantidad,fob_unitario,factor_landed,total_linea'
+            : 'factura_id,cod_alt,descripcion,cantidad,fob_unitario,factor_landed,total_linea,origen';
           let q = await _sb.from('factura_items').select(cols)
             .in('factura_id', trozo).range(off, off + 999);
           // Igual que en cargarUtilidadMes: si la columna no existe, se
@@ -14352,7 +14519,7 @@ GEN-3401    5"
           if (q.error && /origen/i.test(q.error.message || '')) {
             sinColOrigen = true;
             q = await _sb.from('factura_items')
-              .select('cantidad,fob_unitario,factor_landed,total_linea')
+              .select('factura_id,cod_alt,descripcion,cantidad,fob_unitario,factor_landed,total_linea')
               .in('factura_id', trozo).range(off, off + 999);
           }
           if (q.error) {
@@ -14366,7 +14533,9 @@ GEN-3401    5"
           off += 1000;
         }
       }
+      _ORIGEN_DATA = { its: todos, etiqueta: r.etiqueta, nFacts: ids.length };
       renderOrigenMes(todos, r.etiqueta + ' · ' + ids.length + ' factura(s)');
+      if (document.getElementById('rep-origen-detalle')?.style.display === 'block') renderDetalleOrigen();
     }
 
     function renderTopProductos(items) {
@@ -14455,7 +14624,10 @@ GEN-3401    5"
         renderOrigenMes(null);
         return;
       }
-      renderOrigenMes(its);
+      // v13.37: se delega en cargarOrigenPeriodo para que el panel tenga las
+      // tasas congeladas de cada factura y pueda mostrar el equivalente verde.
+      // `its` sigue alimentando los KPIs de abajo, que son solo $BCV.
+      cargarOrigenPeriodo();
 
       // Un renglón con fob 0 calcula costo 0 y dispara el margen al 100%.
       // Se cuentan aparte para avisar que la utilidad está inflada, en vez de
